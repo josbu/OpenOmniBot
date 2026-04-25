@@ -281,6 +281,7 @@ class _LocalModelsPageState extends State<LocalModelsPage>
         final download = rawDownload is Map
             ? MnnLocalDownloadInfo.fromMap(rawDownload)
             : null;
+        _showDownloadStateToast(modelId, download);
         _updateMarketDownloadState(modelId, download);
         if (download?.isCompleted == true) {
           _refreshInstalled(silent: true);
@@ -301,6 +302,38 @@ class _LocalModelsPageState extends State<LocalModelsPage>
         }
         break;
       default:
+        break;
+    }
+  }
+
+  void _showDownloadStateToast(String modelId, MnnLocalDownloadInfo? download) {
+    if (download == null || modelId.isEmpty) return;
+    final newState = download.stateLabel;
+    // Look up previous state from the current market model list.
+    final prevModel = _marketModels.where((m) => m.id == modelId).firstOrNull;
+    final prevState = prevModel?.download?.stateLabel ?? 'not_started';
+    if (newState == prevState) return;
+
+    final name = _displayModelName(modelId);
+    final l10n = context.l10n;
+
+    // Toast for terminal/async state transitions only.
+    // User-initiated actions (start/pause) are toasted from button handlers.
+    switch (newState) {
+      case 'completed':
+        showToast(l10n.localModelsDownloadCompletedToast(name), type: ToastType.success);
+        break;
+      case 'failed':
+        final reason = download.errorMessage.trim().isNotEmpty
+            ? download.errorMessage.trim()
+            : l10n.localModelsDownloadErrorUnknown;
+        showToast(l10n.localModelsDownloadFailedToast(name, reason), type: ToastType.error);
+        break;
+      case 'cancelled':
+        final reason = download.errorMessage.trim().isNotEmpty
+            ? download.errorMessage.trim()
+            : l10n.localModelsDownloadErrorUnknown;
+        showToast(l10n.localModelsDownloadCancelledToast(name, reason), type: ToastType.error);
         break;
     }
   }
@@ -1436,6 +1469,12 @@ class _LocalModelsPageState extends State<LocalModelsPage>
                     );
                     try {
                       await MnnLocalModelsService.startDownload(model.id);
+                      if (mounted) {
+                        showToast(
+                          context.l10n.localModelsDownloadStartedToast(model.name),
+                          type: ToastType.success,
+                        );
+                      }
                       _refreshMarket(silent: true);
                     } catch (_) {
                       _refreshMarket(silent: true);
@@ -1470,6 +1509,12 @@ class _LocalModelsPageState extends State<LocalModelsPage>
                     );
                     try {
                       await MnnLocalModelsService.pauseDownload(model.id);
+                      if (mounted) {
+                        showToast(
+                          context.l10n.localModelsDownloadPausedToast(model.name),
+                          type: ToastType.warning,
+                        );
+                      }
                       _refreshMarket(silent: true);
                     } catch (_) {
                       _refreshMarket(silent: true);
