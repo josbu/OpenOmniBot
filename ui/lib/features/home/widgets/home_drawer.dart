@@ -1545,6 +1545,8 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
                                   controller: _titleEditingController,
                                   focusNode: _titleEditingFocusNode,
                                   maxLines: 1,
+                                  cursorColor: _drawerTextColor.withValues(alpha: 0.6),
+                                  cursorWidth: 1.5,
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w500,
@@ -1556,6 +1558,11 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
                                     isDense: true,
                                     contentPadding: EdgeInsets.zero,
                                     border: InputBorder.none,
+                                    focusedBorder: InputBorder.none,
+                                    enabledBorder: InputBorder.none,
+                                    disabledBorder: InputBorder.none,
+                                    errorBorder: InputBorder.none,
+                                    focusedErrorBorder: InputBorder.none,
                                   ),
                                   onSubmitted: (_) => _commitTitleEdit(),
                                 )
