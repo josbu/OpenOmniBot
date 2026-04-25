@@ -59,7 +59,6 @@ class _LocalModelsPageState extends State<LocalModelsPage>
   bool _loadingInstalled = true;
   bool _loadingMarket = true;
   bool _loadingConfig = true;
-  bool _togglingApiService = false;
 
   @override
   void initState() {
@@ -394,45 +393,6 @@ class _LocalModelsPageState extends State<LocalModelsPage>
     }
   }
 
-  Future<void> _toggleApiService(bool enable) async {
-    final config = _config;
-    if (config == null || _togglingApiService) {
-      return;
-    }
-    setState(() => _togglingApiService = true);
-    try {
-      final nextConfig = enable
-          ? await MnnLocalModelsService.startApiService(
-              modelId: config.activeModelId.isEmpty
-                  ? null
-                  : config.activeModelId,
-            )
-          : await MnnLocalModelsService.stopApiService();
-      if (!mounted) return;
-      setState(() => _config = nextConfig);
-      _refreshInstalled(silent: true);
-      final apiRunning = nextConfig.apiRunning;
-      if (enable) {
-        showToast(
-          apiRunning ? context.l10n.localModelsServiceStarted : context.l10n.localModelsStartFailed,
-          type: apiRunning ? ToastType.success : ToastType.error,
-        );
-      } else {
-        showToast(
-          apiRunning ? context.l10n.localModelsStopFailed : context.l10n.localModelsServiceStopped,
-          type: apiRunning ? ToastType.error : ToastType.success,
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        showToast(enable ? context.l10n.localModelsStartFailed : context.l10n.localModelsStopFailed, type: ToastType.error);
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _togglingApiService = false);
-      }
-    }
-  }
 
   void _updateMarketDownloadState(
     String modelId,
@@ -513,11 +473,6 @@ class _LocalModelsPageState extends State<LocalModelsPage>
       default:
         return l10n.localModelsNotDownloaded;
     }
-  }
-
-  bool _shouldEnableStart(MnnLocalConfig config) {
-    return !_togglingApiService &&
-        !(config.activeModelId.isEmpty && _serviceModels.isEmpty);
   }
 
   Color _blend(Color first, Color second, double t) {
@@ -1011,31 +966,6 @@ class _LocalModelsPageState extends State<LocalModelsPage>
     );
   }
 
-  Widget _buildServiceActionButton(MnnLocalConfig config) {
-    final shouldStop = config.apiRunning;
-    final enabled = shouldStop
-        ? !_togglingApiService
-        : _shouldEnableStart(config);
-    final tone = shouldStop ? _AccentTone.danger : _AccentTone.accent;
-    final l10n = context.l10n;
-    final label = _togglingApiService
-        ? (shouldStop ? l10n.localModelsStopping : l10n.localModelsStarting)
-        : (shouldStop ? l10n.localModelsStopService : l10n.localModelsStartService);
-
-    return SizedBox(
-      width: double.infinity,
-      child: FilledButton.icon(
-        onPressed: enabled ? () => _toggleApiService(!shouldStop) : null,
-        style: _filledButtonStyle(tone: tone),
-        icon: Icon(
-          shouldStop ? Icons.stop_circle_outlined : Icons.play_arrow_rounded,
-          size: 18,
-        ),
-        label: Text(label),
-      ),
-    );
-  }
-
   Widget _buildServiceTab() {
     if (_loadingConfig && _config == null) {
       return const Center(child: CircularProgressIndicator());
@@ -1113,8 +1043,6 @@ class _LocalModelsPageState extends State<LocalModelsPage>
                   '${_backendLabel(config.loadedBackend)} / ${_displayModelName(config.loadedModelId)}',
             ),
           ],
-          const SizedBox(height: 12),
-          _buildServiceActionButton(config),
           const SizedBox(height: 24),
           SettingsSectionTitle(
             label: context.l10n.localModelsAutoPreheatSection,
