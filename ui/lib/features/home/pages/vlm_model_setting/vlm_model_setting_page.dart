@@ -56,10 +56,6 @@ class _ProviderModelItem {
 
   final String id;
   final _ProviderModelSource source;
-
-  String get sourceLabel {
-    return source == _ProviderModelSource.manual ? 'Manual' : 'Auto';
-  }
 }
 
 class VlmModelSettingPage extends StatefulWidget {
@@ -506,7 +502,10 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     }
     if (!ModelProviderConfigService.isValidApiBase(baseUrl)) {
       if (!silentError) {
-        showToast('Invalid Base URL format, please enter http(s) address', type: ToastType.error);
+        showToast(
+          'Invalid Base URL format, please enter http(s) address',
+          type: ToastType.error,
+        );
       }
       return;
     }
@@ -524,7 +523,9 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
       });
       if (!silentError) {
         showToast(
-          models.isEmpty ? 'No models available' : 'Fetched ${models.length} models',
+          models.isEmpty
+              ? context.l10n.localModelsNoAvailableModels
+              : context.trLegacy('已拉取 ${models.length} 个模型'),
           type: models.isEmpty ? ToastType.warning : ToastType.success,
         );
       }
@@ -587,7 +588,10 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
         if (!mounted) {
           return;
         }
-        showToast(context.l10n.modelProviderAddFailed(e), type: ToastType.error);
+        showToast(
+          context.l10n.modelProviderAddFailed(e),
+          type: ToastType.error,
+        );
       });
     }
   }
@@ -643,7 +647,10 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
       showToast(context.l10n.modelProviderDeleted, type: ToastType.success);
     } catch (e) {
       if (!mounted) return;
-      showToast(context.l10n.modelProviderDeleteFailed(e), type: ToastType.error);
+      showToast(
+        context.l10n.modelProviderDeleteFailed(e),
+        type: ToastType.error,
+      );
     }
   }
 
@@ -684,6 +691,7 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
       profileId: current.id,
       ids: nextManual,
     );
+    if (!mounted) return;
     showToast(context.l10n.modelAdded, type: ToastType.success);
   }
 
@@ -1021,7 +1029,11 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              item.sourceLabel,
+                              context.trLegacy(
+                                item.source == _ProviderModelSource.manual
+                                    ? '手动'
+                                    : '自动',
+                              ),
                               style: TextStyle(
                                 fontSize: 12,
                                 color: _tertiaryTextColor,
@@ -1243,7 +1255,10 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
 
     return Scaffold(
       backgroundColor: _pageBackground,
-      appBar: CommonAppBar(title: context.l10n.settingsModelProviderTitle, primary: true),
+      appBar: CommonAppBar(
+        title: context.l10n.settingsModelProviderTitle,
+        primary: true,
+      ),
       body: SafeArea(
         top: false,
         child: _isLoading
@@ -1764,7 +1779,10 @@ class _AddModelIdDialogState extends State<_AddModelIdDialog> {
           onSubmitted: (_) => _close(_controller.text.trim()),
         ),
         actions: [
-          TextButton(onPressed: () => _close(), child: Text(context.trLegacy('取消'))),
+          TextButton(
+            onPressed: () => _close(),
+            child: Text(context.trLegacy('取消')),
+          ),
           TextButton(
             onPressed: () => _close(_controller.text.trim()),
             child: Text(context.l10n.modelAddButton),

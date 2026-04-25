@@ -51,6 +51,7 @@ class LegacyTextLocalizer {
     '聊天文本大小': 'Chat Text Size',
     '聊天文本颜色': 'Chat Text Color',
     '自动': 'Auto',
+    '手动': 'Manual',
     '自定义色号': 'Custom Color',
     '关闭浏览器窗口': 'Close browser window',
     '当前平台暂不支持浏览器工具视图':
@@ -102,6 +103,7 @@ class LegacyTextLocalizer {
     '确定': 'OK',
     '请稍候...': 'Please wait...',
     '保存': 'Save',
+    '保存并发送': 'Save & Send',
     '未设置模型': 'No model set',
     '发现新版本': 'New version available',
     '打开终端': 'Open terminal',
@@ -179,6 +181,7 @@ class LegacyTextLocalizer {
     '权限说明': 'Permission Notes',
     '授权应用': 'Authorized Apps',
     '编辑': 'Edit',
+    '编辑你的消息': 'Edit your message',
     '创建': 'Create',
     '任务名称': 'Task Name',
     '启动命令': 'Start Command',
@@ -313,11 +316,9 @@ class LegacyTextLocalizer {
     '处理中': 'Processing',
     '终端': 'Terminal',
     '浏览器': 'Browser',
-    '工作区': 'Workspace',
     '定时': 'Scheduled',
     '提醒': 'Reminder',
     '日历': 'Calendar',
-    '记忆': 'Memory',
     '子任务': 'Subtask',
     '工具': 'Tool',
     '[更早记录已省略]': '[Earlier records omitted]',
@@ -342,6 +343,10 @@ class LegacyTextLocalizer {
     (
       RegExp(r'^自动保存失败：(.+)$'),
       (match) => 'Auto-save failed: ${match.group(1)!}',
+    ),
+    (
+      RegExp(r'^已拉取 (\d+) 个模型$'),
+      (match) => 'Fetched ${match.group(1)!} models',
     ),
     (
       RegExp(r'^暂时无法生成回复，请重试。(.*)$'),

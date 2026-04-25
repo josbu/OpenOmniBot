@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:ui/l10n/l10n.dart';
 import 'package:ui/models/chat_link_preview.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
@@ -881,10 +882,17 @@ class MessageBubble extends StatelessWidget {
                 letterSpacing: 0.33,
               ),
               decoration: InputDecoration(
+                filled: false,
+                fillColor: Colors.transparent,
                 border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
+                errorBorder: InputBorder.none,
+                focusedErrorBorder: InputBorder.none,
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
-                hintText: 'Edit your message',
+                hintText: context.trLegacy('编辑你的消息'),
                 hintStyle: TextStyle(
                   color: visualProfile.primaryTextColor.withValues(alpha: 0.6),
                   fontSize: _chatTextSize,
@@ -903,14 +911,14 @@ class MessageBubble extends StatelessWidget {
               children: [
                 TextButton(
                   onPressed: onCancelUserEdit,
-                  child: const Text('Cancel'),
+                  child: Text(context.trLegacy('取消'), softWrap: false),
                 ),
                 FilledButton(
                   onPressed: canSave ? onSaveUserEdit : null,
                   style: FilledButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                   ),
-                  child: const Text('Save & send'),
+                  child: Text(context.trLegacy('保存并发送'), softWrap: false),
                 ),
               ],
             ),
