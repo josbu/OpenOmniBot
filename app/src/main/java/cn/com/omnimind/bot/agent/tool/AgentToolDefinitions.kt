@@ -674,8 +674,8 @@ object AgentToolDefinitions {
                 put(
                     "description",
                     text(
-                        "通过 Shizuku 执行受控的系统级安卓动作。这条能力链路独立于 terminal_execute；仅用于 package_control、settings_control、device_control、diagnostics 这四类 allowlist 高级动作，不允许任意 shell。当前后端：$backendLabel。当前可见 action：$actionList。高风险动作需要在 arguments.confirmed 中显式确认。",
-                        "Run controlled Android system actions through Shizuku. This path is separate from `terminal_execute` and only supports allowlisted `package_control`, `settings_control`, `device_control`, and `diagnostics` actions, not arbitrary shell commands. Current backend: $backendLabel. Currently visible actions: $actionList. High-risk actions require explicit confirmation in `arguments.confirmed`."
+                        "通过 Shizuku 执行安卓高权限动作。这条能力链路独立于 `terminal_execute`：既保留受控 typed action，也支持 `action=shell.exec` 的一次性任意 shell。若确实需要保留 cwd、环境变量或 shell 状态，请改用 `android_privileged_session_*`。当前后端：$backendLabel。当前可见 action：$actionList。`shell.exec` 与高风险动作都必须在 `arguments.confirmed` 中显式确认。",
+                        "Run Android privileged actions through Shizuku. This path stays separate from `terminal_execute`: it keeps the typed allowlisted actions and also supports one-shot arbitrary shell via `action=shell.exec`. When you truly need persistent cwd, environment, or shell state, switch to `android_privileged_session_*`. Current backend: $backendLabel. Currently visible actions: $actionList. `shell.exec` and high-risk actions both require explicit confirmation in `arguments.confirmed`."
                     )
                 )
                 put(
@@ -706,8 +706,8 @@ object AgentToolDefinitions {
                             put(
                                 "description",
                                 text(
-                                    "动作参数对象。只传该 action 需要的字段；高风险动作若已获得用户明确同意，请传 confirmed=true。",
-                                    "Arguments object for the selected action. Only include fields needed by that action. For high-risk actions, pass confirmed=true only after explicit user consent."
+                                    "动作参数对象。typed action 只传该 action 需要的字段；当 `action=shell.exec` 时，在这里传入 `command`、可选 `timeoutSeconds`、`workingDirectory`、`environment`，以及已获得用户明确同意后才传 `confirmed=true`。",
+                                    "Arguments object for the selected action. For typed actions, only include the fields that action needs. When `action=shell.exec`, provide `command`, optional `timeoutSeconds`, `workingDirectory`, `environment`, and only pass `confirmed=true` after explicit user consent."
                                 )
                             )
                         }
@@ -715,6 +715,227 @@ object AgentToolDefinitions {
                     putJsonArray("required") {
                         add("action")
                         add("arguments")
+                    }
+                }
+            }
+        }, locale)
+    }
+
+    fun androidPrivilegedSessionStartTool(
+        backend: ShizukuBackend,
+        locale: PromptLocale = currentLocale()
+    ): JsonObject {
+        val text: (String, String) -> String = { zh, en ->
+            if (locale == PromptLocale.ZH_CN) zh else en
+        }
+        val backendLabel = when (backend) {
+            ShizukuBackend.ROOT -> text("root/Sui", "root/Sui")
+            ShizukuBackend.ADB -> text("adb shell", "adb shell")
+            ShizukuBackend.NONE -> text("未授权", "not granted")
+        }
+        return decorateToolDefinition(buildJsonObject {
+            put("type", "function")
+            putJsonObject("function") {
+                put("name", "android_privileged_session_start")
+                put("displayName", text("启动高权限会话", "Start Privileged Session"))
+                put("toolType", "privileged")
+                put(
+                    "description",
+                    text(
+                        "启动一个可复用的 Shizuku 高权限 shell 会话，仅用于确实需要跨多轮保留 cwd、环境变量或 shell 状态的任务。当前后端：$backendLabel。此操作需要用户明确确认。",
+                        "Start a reusable Shizuku privileged shell session. Use it only when a task truly needs persistent cwd, environment variables, or shell state across turns. Current backend: $backendLabel. This operation requires explicit user confirmation."
+                    )
+                )
+                put(
+                    "postToolRule",
+                    text(
+                        "启动后先等待工具结果；如果返回需要确认，不要自行假设用户同意。",
+                        "Wait for the tool result after starting. If it asks for confirmation, do not assume user consent."
+                    )
+                )
+                putJsonObject("parameters") {
+                    put("type", "object")
+                    putJsonObject("properties") {
+                        putJsonObject("sessionName") {
+                            put("type", "string")
+                            put("description", text("可选，会话名称。未传时自动生成。", "Optional session name. Generated automatically when omitted."))
+                        }
+                        putJsonObject("workingDirectory") {
+                            put("type", "string")
+                            put("description", text("可选，会话初始工作目录。建议使用 Android 设备上的绝对路径。", "Optional initial working directory. Prefer an absolute path on the Android device filesystem."))
+                        }
+                        putJsonObject("environment") {
+                            put("type", "object")
+                            put("description", text("可选，启动时要注入的环境变量映射。", "Optional environment variables to inject when the session starts."))
+                            putJsonObject("additionalProperties") {
+                                put("type", "string")
+                            }
+                        }
+                        putJsonObject("confirmed") {
+                            put("type", "boolean")
+                            put("description", text("只有在用户已明确同意时才传 true。", "Set to true only after the user has explicitly confirmed."))
+                        }
+                    }
+                }
+            }
+        }, locale)
+    }
+
+    fun androidPrivilegedSessionExecTool(
+        backend: ShizukuBackend,
+        locale: PromptLocale = currentLocale()
+    ): JsonObject {
+        val text: (String, String) -> String = { zh, en ->
+            if (locale == PromptLocale.ZH_CN) zh else en
+        }
+        val backendLabel = when (backend) {
+            ShizukuBackend.ROOT -> text("root/Sui", "root/Sui")
+            ShizukuBackend.ADB -> text("adb shell", "adb shell")
+            ShizukuBackend.NONE -> text("未授权", "not granted")
+        }
+        return decorateToolDefinition(buildJsonObject {
+            put("type", "function")
+            putJsonObject("function") {
+                put("name", "android_privileged_session_exec")
+                put("displayName", text("执行高权限命令", "Run Privileged Command"))
+                put("toolType", "privileged")
+                put(
+                    "description",
+                    text(
+                        "向已有的 Shizuku 高权限 shell 会话发送一条命令，并等待该命令完成。当前后端：$backendLabel。每次执行都需要用户明确确认。",
+                        "Send a command to an existing Shizuku privileged shell session and wait for that command to finish. Current backend: $backendLabel. Every execution requires explicit user confirmation."
+                    )
+                )
+                put(
+                    "postToolRule",
+                    text(
+                        "执行后先等待工具结果，再决定是否继续读取输出、再次执行或结束会话。",
+                        "Wait for the tool result after execution before deciding whether to read output, run another command, or stop the session."
+                    )
+                )
+                putJsonObject("parameters") {
+                    put("type", "object")
+                    putJsonObject("properties") {
+                        putJsonObject("sessionId") {
+                            put("type", "string")
+                            put("description", text("`android_privileged_session_start` 返回的 sessionId。", "The sessionId returned by `android_privileged_session_start`."))
+                        }
+                        putJsonObject("command") {
+                            put("type", "string")
+                            put("description", text("要执行的 shell 命令。", "The shell command to execute."))
+                        }
+                        putJsonObject("timeoutSeconds") {
+                            put("type", "integer")
+                            put("description", text("等待该命令完成的超时时间，默认 120 秒，范围 5-600。", "Timeout in seconds while waiting for the command to finish. Default 120, range 5-600."))
+                        }
+                        putJsonObject("confirmed") {
+                            put("type", "boolean")
+                            put("description", text("只有在用户已明确同意时才传 true。", "Set to true only after the user has explicitly confirmed."))
+                        }
+                    }
+                    putJsonArray("required") {
+                        add("sessionId")
+                        add("command")
+                    }
+                }
+            }
+        }, locale)
+    }
+
+    fun androidPrivilegedSessionReadTool(
+        backend: ShizukuBackend,
+        locale: PromptLocale = currentLocale()
+    ): JsonObject {
+        val text: (String, String) -> String = { zh, en ->
+            if (locale == PromptLocale.ZH_CN) zh else en
+        }
+        val backendLabel = when (backend) {
+            ShizukuBackend.ROOT -> text("root/Sui", "root/Sui")
+            ShizukuBackend.ADB -> text("adb shell", "adb shell")
+            ShizukuBackend.NONE -> text("未授权", "not granted")
+        }
+        return decorateToolDefinition(buildJsonObject {
+            put("type", "function")
+            putJsonObject("function") {
+                put("name", "android_privileged_session_read")
+                put("displayName", text("读取高权限输出", "Read Privileged Output"))
+                put("toolType", "privileged")
+                put(
+                    "description",
+                    text(
+                        "读取 Shizuku 高权限 shell 会话最近的 transcript 尾部。当前后端：$backendLabel。该操作不会再次请求确认。",
+                        "Read the latest transcript tail from a Shizuku privileged shell session. Current backend: $backendLabel. This operation does not require another confirmation."
+                    )
+                )
+                put(
+                    "postToolRule",
+                    text(
+                        "读取结果后再决定是否继续发送命令或结束会话。",
+                        "After reading the result, decide whether to send another command or stop the session."
+                    )
+                )
+                putJsonObject("parameters") {
+                    put("type", "object")
+                    putJsonObject("properties") {
+                        putJsonObject("sessionId") {
+                            put("type", "string")
+                            put("description", text("`android_privileged_session_start` 返回的 sessionId。", "The sessionId returned by `android_privileged_session_start`."))
+                        }
+                        putJsonObject("maxChars") {
+                            put("type", "integer")
+                            put("description", text("最多返回多少字符，默认 4000，范围 256-64000。", "Maximum number of characters to return. Default 4000, range 256-64000."))
+                        }
+                    }
+                    putJsonArray("required") {
+                        add("sessionId")
+                    }
+                }
+            }
+        }, locale)
+    }
+
+    fun androidPrivilegedSessionStopTool(
+        backend: ShizukuBackend,
+        locale: PromptLocale = currentLocale()
+    ): JsonObject {
+        val text: (String, String) -> String = { zh, en ->
+            if (locale == PromptLocale.ZH_CN) zh else en
+        }
+        val backendLabel = when (backend) {
+            ShizukuBackend.ROOT -> text("root/Sui", "root/Sui")
+            ShizukuBackend.ADB -> text("adb shell", "adb shell")
+            ShizukuBackend.NONE -> text("未授权", "not granted")
+        }
+        return decorateToolDefinition(buildJsonObject {
+            put("type", "function")
+            putJsonObject("function") {
+                put("name", "android_privileged_session_stop")
+                put("displayName", text("结束高权限会话", "Stop Privileged Session"))
+                put("toolType", "privileged")
+                put(
+                    "description",
+                    text(
+                        "结束已有的 Shizuku 高权限 shell 会话并清理状态。当前后端：$backendLabel。该操作不会再次请求确认。",
+                        "Stop an existing Shizuku privileged shell session and clean up its state. Current backend: $backendLabel. This operation does not require another confirmation."
+                    )
+                )
+                put(
+                    "postToolRule",
+                    text(
+                        "结束后先等待工具结果，再决定是否回复用户。",
+                        "Wait for the tool result after stopping the session before replying to the user."
+                    )
+                )
+                putJsonObject("parameters") {
+                    put("type", "object")
+                    putJsonObject("properties") {
+                        putJsonObject("sessionId") {
+                            put("type", "string")
+                            put("description", text("`android_privileged_session_start` 返回的 sessionId。", "The sessionId returned by `android_privileged_session_start`."))
+                        }
+                    }
+                    putJsonArray("required") {
+                        add("sessionId")
                     }
                 }
             }

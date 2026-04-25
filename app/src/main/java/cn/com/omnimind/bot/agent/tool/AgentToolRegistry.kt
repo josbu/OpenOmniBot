@@ -60,6 +60,30 @@ class AgentToolRegistry(
                     locale = locale
                 )
             )
+            runtimeDefinitions.add(
+                AgentToolDefinitions.androidPrivilegedSessionStartTool(
+                    backend = shizukuStatus.backend,
+                    locale = locale
+                )
+            )
+            runtimeDefinitions.add(
+                AgentToolDefinitions.androidPrivilegedSessionExecTool(
+                    backend = shizukuStatus.backend,
+                    locale = locale
+                )
+            )
+            runtimeDefinitions.add(
+                AgentToolDefinitions.androidPrivilegedSessionReadTool(
+                    backend = shizukuStatus.backend,
+                    locale = locale
+                )
+            )
+            runtimeDefinitions.add(
+                AgentToolDefinitions.androidPrivilegedSessionStopTool(
+                    backend = shizukuStatus.backend,
+                    locale = locale
+                )
+            )
         }
         runtimeDefinitions.addAll(AgentToolDefinitions.memoryTools(locale))
         runtimeDefinitions.addAll(AgentToolDefinitions.subagentTools(locale))

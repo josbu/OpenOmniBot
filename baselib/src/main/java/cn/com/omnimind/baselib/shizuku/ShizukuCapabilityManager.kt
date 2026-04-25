@@ -195,6 +195,8 @@ class ShizukuCapabilityManager private constructor(
         payload.putAll(status.toMap())
         if (!status.isGranted()) {
             payload["probe"] = null
+            payload["rawShellProbe"] = null
+            payload["sessionProbe"] = null
             return payload
         }
         val probe = execute(
@@ -205,6 +207,41 @@ class ShizukuCapabilityManager private constructor(
             )
         )
         payload["probe"] = probe.toMap()
+        val rawShellProbe = execute(
+            PrivilegedRequest(
+                requestId = UUID.randomUUID().toString(),
+                action = PrivilegedActionPolicy.ACTION_SHELL_EXEC,
+                arguments = mapOf("confirmed" to "true"),
+                command = "getprop ro.build.version.release",
+                timeoutSeconds = 10
+            )
+        )
+        payload["rawShellProbe"] = rawShellProbe.toMap()
+
+        val sessionStart = startPrivilegedSession(
+            confirmed = true
+        )
+        val sessionProbe = linkedMapOf<String, Any?>(
+            "start" to sessionStart.toMap()
+        )
+        val sessionId = sessionStart.sessionId
+        if (sessionStart.success && !sessionId.isNullOrBlank()) {
+            val sessionExec = execPrivilegedSession(
+                sessionId = sessionId,
+                command = "pwd",
+                timeoutSeconds = 10,
+                confirmed = true
+            )
+            sessionProbe["exec"] = sessionExec.toMap()
+            val sessionRead = readPrivilegedSession(
+                sessionId = sessionId,
+                maxChars = 2048
+            )
+            sessionProbe["read"] = sessionRead.toMap()
+            val sessionStop = stopPrivilegedSession(sessionId)
+            sessionProbe["stop"] = sessionStop.toMap()
+        }
+        payload["sessionProbe"] = sessionProbe
         return payload
     }
 
@@ -220,6 +257,96 @@ class ShizukuCapabilityManager private constructor(
             requiresConfirmation = requiresConfirmation
         )
         return execute(request)
+    }
+
+    suspend fun executeRawShell(
+        command: String,
+        timeoutSeconds: Int? = null,
+        workingDirectory: String? = null,
+        environment: Map<String, String> = emptyMap(),
+        confirmed: Boolean = false,
+    ): PrivilegedResult {
+        return execute(
+            PrivilegedRequest(
+                requestId = UUID.randomUUID().toString(),
+                action = PrivilegedActionPolicy.ACTION_SHELL_EXEC,
+                arguments = confirmationArguments(confirmed),
+                command = command,
+                timeoutSeconds = timeoutSeconds,
+                workingDirectory = workingDirectory,
+                environment = environment
+            )
+        )
+    }
+
+    suspend fun startPrivilegedSession(
+        sessionId: String? = null,
+        sessionName: String? = null,
+        workingDirectory: String? = null,
+        environment: Map<String, String> = emptyMap(),
+        confirmed: Boolean = false,
+    ): PrivilegedResult {
+        val arguments = confirmationArguments(confirmed).toMutableMap()
+        sessionName?.trim()?.takeIf { it.isNotEmpty() }?.let { arguments["sessionName"] = it }
+        return execute(
+            PrivilegedRequest(
+                requestId = UUID.randomUUID().toString(),
+                action = PrivilegedActionPolicy.ACTION_SESSION_START,
+                arguments = arguments,
+                workingDirectory = workingDirectory,
+                environment = environment,
+                sessionId = sessionId
+            )
+        )
+    }
+
+    suspend fun execPrivilegedSession(
+        sessionId: String,
+        command: String,
+        timeoutSeconds: Int? = null,
+        workingDirectory: String? = null,
+        environment: Map<String, String> = emptyMap(),
+        confirmed: Boolean = false,
+    ): PrivilegedResult {
+        return execute(
+            PrivilegedRequest(
+                requestId = UUID.randomUUID().toString(),
+                action = PrivilegedActionPolicy.ACTION_SESSION_EXEC,
+                arguments = confirmationArguments(confirmed),
+                command = command,
+                timeoutSeconds = timeoutSeconds,
+                workingDirectory = workingDirectory,
+                environment = environment,
+                sessionId = sessionId
+            )
+        )
+    }
+
+    suspend fun readPrivilegedSession(
+        sessionId: String,
+        maxChars: Int? = null,
+    ): PrivilegedResult {
+        val arguments = buildMap {
+            maxChars?.let { put("maxChars", it.toString()) }
+        }
+        return execute(
+            PrivilegedRequest(
+                requestId = UUID.randomUUID().toString(),
+                action = PrivilegedActionPolicy.ACTION_SESSION_READ,
+                arguments = arguments,
+                sessionId = sessionId
+            )
+        )
+    }
+
+    suspend fun stopPrivilegedSession(sessionId: String): PrivilegedResult {
+        return execute(
+            PrivilegedRequest(
+                requestId = UUID.randomUUID().toString(),
+                action = PrivilegedActionPolicy.ACTION_SESSION_STOP,
+                sessionId = sessionId
+            )
+        )
     }
 
     suspend fun pressKeyEvent(key: String): PrivilegedResult {
@@ -291,7 +418,7 @@ class ShizukuCapabilityManager private constructor(
         backend: ShizukuBackend,
     ): PrivilegedResult {
         val requestJson = json.encodeToString(PrivilegedRequest.serializer(), request)
-        val resultJson = withTimeoutOrNull(12_000) {
+        val resultJson = withTimeoutOrNull(remoteTimeoutMillisFor(request)) {
             withContext(Dispatchers.IO) {
                 runCatching {
                     service.execute(requestJson)
@@ -396,11 +523,34 @@ class ShizukuCapabilityManager private constructor(
         }
     }
 
+    private fun confirmationArguments(confirmed: Boolean): Map<String, String> {
+        return if (confirmed) {
+            mapOf("confirmed" to "true")
+        } else {
+            emptyMap()
+        }
+    }
+
+    private fun remoteTimeoutMillisFor(request: PrivilegedRequest): Long {
+        return when (PrivilegedActionPolicy.normalizeAction(request.action)) {
+            PrivilegedActionPolicy.ACTION_SHELL_EXEC,
+            PrivilegedActionPolicy.ACTION_SESSION_EXEC -> {
+                val requestedSeconds = request.timeoutSeconds?.coerceIn(5, 600) ?: 60
+                (requestedSeconds + 8L) * 1000L
+            }
+
+            PrivilegedActionPolicy.ACTION_SESSION_START -> 15_000L
+            PrivilegedActionPolicy.ACTION_SESSION_READ,
+            PrivilegedActionPolicy.ACTION_SESSION_STOP -> 10_000L
+            else -> 12_000L
+        }
+    }
+
     companion object {
         private const val TAG = "ShizukuCapabilityMgr"
         private const val SHIZUKU_PACKAGE_NAME = "moe.shizuku.privileged.api"
         private const val USER_SERVICE_TAG = "omnibot-privileged-agent"
-        private const val USER_SERVICE_VERSION = 2
+        private const val USER_SERVICE_VERSION = 3
 
         @Volatile
         private var instance: ShizukuCapabilityManager? = null

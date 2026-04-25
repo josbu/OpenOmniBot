@@ -553,12 +553,12 @@ class ShizukuStatusSnapshot {
     switch (status) {
       case 'GRANTED_ROOT':
         return LegacyTextLocalizer.isEnglish
-            ? 'Shizuku is ready through root/Sui.'
-            : 'Shizuku 已通过 root/Sui 就绪。';
+            ? 'Shizuku is ready through root/Sui. Agent privileged tools are enabled, including arbitrary shell and persistent shell sessions. Every raw shell and privileged session command still requires confirmation.'
+            : 'Shizuku 已通过 root/Sui 就绪。Agent 高权限工具已启用，支持任意 shell 和持久高权限会话；每次 raw shell 与高权限会话命令仍需用户确认。';
       case 'GRANTED_ADB':
         return LegacyTextLocalizer.isEnglish
-            ? 'Shizuku is ready through adb shell.'
-            : 'Shizuku 已通过 adb shell 就绪。';
+            ? 'Shizuku is ready through adb shell. Agent privileged tools are enabled, including arbitrary shell and persistent shell sessions. Commands still follow adb-shell capability limits, and every raw shell and privileged session command requires confirmation.'
+            : 'Shizuku 已通过 adb shell 就绪。Agent 高权限工具已启用，支持任意 shell 和持久高权限会话，但能力仍受 adb shell 后端限制；每次 raw shell 与高权限会话命令都需要用户确认。';
       case 'PERMISSION_DENIED':
         return LegacyTextLocalizer.isEnglish
             ? 'Open Shizuku and grant Omnibot permission.'
@@ -584,21 +584,58 @@ class ShizukuHealthCheckSnapshot {
     required this.status,
     required this.probeSuccess,
     required this.probeMessage,
+    required this.rawShellProbeSuccess,
+    required this.rawShellProbeMessage,
+    required this.sessionProbeSuccess,
+    required this.sessionProbeMessage,
   });
 
   final ShizukuStatusSnapshot status;
   final bool probeSuccess;
   final String probeMessage;
+  final bool rawShellProbeSuccess;
+  final String rawShellProbeMessage;
+  final bool sessionProbeSuccess;
+  final String sessionProbeMessage;
 
   factory ShizukuHealthCheckSnapshot.fromMap(Map<dynamic, dynamic>? map) {
     final probe = map?['probe'];
     final probeMap = probe is Map ? Map<dynamic, dynamic>.from(probe) : null;
+    final rawShellProbe = map?['rawShellProbe'];
+    final rawShellProbeMap =
+        rawShellProbe is Map ? Map<dynamic, dynamic>.from(rawShellProbe) : null;
+    final sessionProbe = map?['sessionProbe'];
+    final sessionProbeMap =
+        sessionProbe is Map ? Map<dynamic, dynamic>.from(sessionProbe) : null;
+    final sessionStart = _asNestedMap(sessionProbeMap?['start']);
+    final sessionExec = _asNestedMap(sessionProbeMap?['exec']);
+    final sessionRead = _asNestedMap(sessionProbeMap?['read']);
+    final sessionStop = _asNestedMap(sessionProbeMap?['stop']);
+    final sessionStages = [
+      if (sessionStart != null) sessionStart,
+      if (sessionExec != null) sessionExec,
+      if (sessionRead != null) sessionRead,
+      if (sessionStop != null) sessionStop,
+    ];
     return ShizukuHealthCheckSnapshot(
       status: ShizukuStatusSnapshot.fromMap(map),
       probeSuccess: probeMap?['success'] == true,
       probeMessage: (probeMap?['message'] as String? ?? '').trim(),
+      rawShellProbeSuccess: rawShellProbeMap?['success'] == true,
+      rawShellProbeMessage: (rawShellProbeMap?['message'] as String? ?? '')
+          .trim(),
+      sessionProbeSuccess:
+          sessionStages.isNotEmpty &&
+          sessionStages.every((stage) => stage['success'] == true),
+      sessionProbeMessage: ((sessionExec ?? sessionStart)?['message'] as String? ??
+              (sessionStop?['message'] as String? ?? ''))
+          .trim(),
     );
   }
+}
+
+Map<dynamic, dynamic>? _asNestedMap(dynamic raw) {
+  return raw is Map ? Map<dynamic, dynamic>.from(raw) : null;
 }
 
 Future<bool> isShizukuInstalled() async {
@@ -660,6 +697,10 @@ Future<ShizukuHealthCheckSnapshot> runShizukuHealthCheck() async {
       status: ShizukuStatusSnapshot.fallback(),
       probeSuccess: false,
       probeMessage: '',
+      rawShellProbeSuccess: false,
+      rawShellProbeMessage: '',
+      sessionProbeSuccess: false,
+      sessionProbeMessage: '',
     );
   }
 }

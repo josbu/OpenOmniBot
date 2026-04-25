@@ -38,6 +38,7 @@ class OmnibotPrivilegedUserService() : IOmnibotPrivilegedUserService.Stub() {
 
     override fun destroy() {
         Log.i(TAG, "Privileged user service destroy requested")
+        runCatching { PrivilegedCommandExecutor.shutdown() }
         System.exit(0)
     }
 

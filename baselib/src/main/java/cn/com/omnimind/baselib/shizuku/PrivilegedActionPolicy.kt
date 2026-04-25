@@ -1,6 +1,10 @@
 package cn.com.omnimind.baselib.shizuku
 
 object PrivilegedActionPolicy {
+    private data class CommandBlockRule(
+        val regex: Regex,
+        val reason: String,
+    )
 
     const val ACTION_PACKAGE_LAUNCH = "package_control.launch_activity"
     const val ACTION_PACKAGE_FORCE_STOP = "package_control.force_stop"
@@ -23,6 +27,13 @@ object PrivilegedActionPolicy {
     const val ACTION_DIAGNOSTICS_LIST_PACKAGES = "diagnostics.list_packages"
     const val ACTION_DIAGNOSTICS_LOGCAT_TAIL = "diagnostics.logcat_tail"
 
+    const val ACTION_SHELL_EXEC = "shell.exec"
+
+    internal const val ACTION_SESSION_START = "shell.session_start"
+    internal const val ACTION_SESSION_EXEC = "shell.session_exec"
+    internal const val ACTION_SESSION_READ = "shell.session_read"
+    internal const val ACTION_SESSION_STOP = "shell.session_stop"
+
     private val adbVisibleActions = linkedSetOf(
         ACTION_PACKAGE_LAUNCH,
         ACTION_PACKAGE_FORCE_STOP,
@@ -38,7 +49,8 @@ object PrivilegedActionPolicy {
         ACTION_DIAGNOSTICS_GETPROP,
         ACTION_DIAGNOSTICS_DUMPSYS,
         ACTION_DIAGNOSTICS_LIST_PACKAGES,
-        ACTION_DIAGNOSTICS_LOGCAT_TAIL
+        ACTION_DIAGNOSTICS_LOGCAT_TAIL,
+        ACTION_SHELL_EXEC
     )
 
     private val rootVisibleActions = linkedSetOf(
@@ -47,7 +59,60 @@ object PrivilegedActionPolicy {
     )
 
     private val internalOnlyActions = linkedSetOf(
-        ACTION_DEVICE_INPUT_TEXT
+        ACTION_DEVICE_INPUT_TEXT,
+        ACTION_SESSION_START,
+        ACTION_SESSION_EXEC,
+        ACTION_SESSION_READ,
+        ACTION_SESSION_STOP
+    )
+
+    private val commandBlockRules = listOf(
+        CommandBlockRule(
+            Regex("""(^|[;&|()\s])(reboot|shutdown)(?=($|[;&|()\s]))""", RegexOption.IGNORE_CASE),
+            "Power-off and reboot commands are blocked."
+        ),
+        CommandBlockRule(
+            Regex("""(^|[;&|()\s])(svc|cmd)\s+power(?=($|[;&|()\s]))""", RegexOption.IGNORE_CASE),
+            "Direct power-management commands are blocked."
+        ),
+        CommandBlockRule(
+            Regex("""(^|[;&|()\s])recovery\s+--wipe_[A-Za-z0-9_-]+""", RegexOption.IGNORE_CASE),
+            "Recovery wipe commands are blocked."
+        ),
+        CommandBlockRule(
+            Regex("""(^|[;&|()\s])sm\s+partition(?=($|[;&|()\s]))""", RegexOption.IGNORE_CASE),
+            "Storage repartition commands are blocked."
+        ),
+        CommandBlockRule(
+            Regex("""(^|[;&|()\s])fastboot(?=($|[;&|()\s]))""", RegexOption.IGNORE_CASE),
+            "Fastboot commands are blocked."
+        ),
+        CommandBlockRule(
+            Regex("""/dev/block/""", RegexOption.IGNORE_CASE),
+            "Direct block-device writes are blocked."
+        ),
+        CommandBlockRule(
+            Regex("""(^|[;&|()\s])(mkfs\S*|newfs\S*)(?=($|[;&|()\s]))""", RegexOption.IGNORE_CASE),
+            "Filesystem formatting commands are blocked."
+        ),
+        CommandBlockRule(
+            Regex(
+                """(^|[;&|()\s])(mount|toybox\s+mount|busybox\s+mount)\b[^\n]*\b(remount|rw)\b[^\n]*\s/(system|vendor|product|system_ext)(/|\b)""",
+                RegexOption.IGNORE_CASE
+            ),
+            "Remounting protected system partitions is blocked."
+        ),
+        CommandBlockRule(
+            Regex("""(?:>|>>)\s*/(system|vendor|product|system_ext)(/|\b)""", RegexOption.IGNORE_CASE),
+            "Direct writes to protected system partitions are blocked."
+        ),
+        CommandBlockRule(
+            Regex(
+                """\b(cp|mv|rm|touch|install|dd|tee)\b[^\n]*\s/(system|vendor|product|system_ext)(/|\b)""",
+                RegexOption.IGNORE_CASE
+            ),
+            "Direct writes to protected system partitions are blocked."
+        )
     )
 
     fun normalizeAction(raw: String): String = raw.trim().lowercase()
@@ -95,7 +160,10 @@ object PrivilegedActionPolicy {
             ACTION_PACKAGE_REVOKE_PERMISSION,
             ACTION_PACKAGE_SET_APPOPS,
             ACTION_SETTINGS_PUT,
-            ACTION_DEVICE_SET_MOBILE_DATA_ENABLED -> true
+            ACTION_DEVICE_SET_MOBILE_DATA_ENABLED,
+            ACTION_SHELL_EXEC,
+            ACTION_SESSION_START,
+            ACTION_SESSION_EXEC -> true
             else -> false
         }
     }
@@ -115,5 +183,15 @@ object PrivilegedActionPolicy {
             }
         }
         return false
+    }
+
+    fun blockedCommandReason(command: String?): String? {
+        val normalized = command?.trim().orEmpty()
+        if (normalized.isEmpty()) {
+            return null
+        }
+        return commandBlockRules.firstOrNull { rule ->
+            rule.regex.containsMatchIn(normalized)
+        }?.reason
     }
 }

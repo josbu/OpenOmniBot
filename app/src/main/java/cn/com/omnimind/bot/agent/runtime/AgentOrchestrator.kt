@@ -287,7 +287,11 @@ class AgentOrchestrator(
                     }
                     if (
                         toolCall.function.name == "terminal_execute" ||
-                        toolCall.function.name == "android_privileged_action"
+                        toolCall.function.name == "android_privileged_action" ||
+                        toolCall.function.name == "android_privileged_session_start" ||
+                        toolCall.function.name == "android_privileged_session_exec" ||
+                        toolCall.function.name == "android_privileged_session_read" ||
+                        toolCall.function.name == "android_privileged_session_stop"
                     ) {
                         break
                     }
