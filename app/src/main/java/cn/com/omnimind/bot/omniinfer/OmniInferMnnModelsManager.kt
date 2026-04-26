@@ -744,6 +744,90 @@ object OmniInferMnnModelsManager {
         }
     }
 
+    // ---- Import from device -------------------------------------------------------------------
+
+    suspend fun importModel(filePath: String): Map<String, Any?> {
+        val sourceFile = File(filePath)
+        if (!sourceFile.exists() || !sourceFile.isFile) {
+            return mapOf("success" to false, "error" to "File does not exist: $filePath")
+        }
+
+        if (!sourceFile.name.equals("config.json", ignoreCase = true)) {
+            return mapOf("success" to false, "error" to "Please select config.json from the MNN model directory")
+        }
+
+        val sourceDir = sourceFile.parentFile
+            ?: return mapOf("success" to false, "error" to "Cannot resolve parent directory")
+
+        val context = ensureContext()
+        val mnnDir = AgentWorkspaceManager.modelsMnnDirectory(context)
+        val modelId = sourceDir.name
+        val destDir = File(mnnDir, modelId)
+
+        if (destDir.exists()) {
+            return mapOf("success" to false, "error" to "Model directory already exists: $modelId")
+        }
+
+        val totalSize = sourceDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        val usableSpace = mnnDir.usableSpace
+        if (totalSize > usableSpace) {
+            return mapOf("success" to false, "error" to "Insufficient storage space")
+        }
+
+        destDir.mkdirs()
+
+        try {
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                var copiedSize = 0L
+                var lastEmitTime = 0L
+                val buffer = ByteArray(8192)
+
+                sourceDir.walkTopDown().filter { it.isFile }.forEach { srcFile ->
+                    val relativePath = srcFile.relativeTo(sourceDir).path
+                    val destFile = File(destDir, relativePath)
+                    destFile.parentFile?.mkdirs()
+
+                    srcFile.inputStream().buffered().use { input ->
+                        destFile.outputStream().buffered().use { output ->
+                            while (true) {
+                                val bytesRead = input.read(buffer)
+                                if (bytesRead == -1) break
+                                output.write(buffer, 0, bytesRead)
+                                copiedSize += bytesRead
+                                val now = System.currentTimeMillis()
+                                if (now - lastEmitTime > 300) {
+                                    lastEmitTime = now
+                                    emitEvent("import_progress", mapOf(
+                                        "modelId" to modelId,
+                                        "progress" to if (totalSize > 0) copiedSize.toDouble() / totalSize else 0.0,
+                                        "copiedSize" to copiedSize,
+                                        "totalSize" to totalSize,
+                                        "currentFile" to relativePath,
+                                    ))
+                                }
+                            }
+                        }
+                    }
+                }
+                emitEvent("import_progress", mapOf(
+                    "modelId" to modelId,
+                    "progress" to 1.0,
+                    "copiedSize" to totalSize,
+                    "totalSize" to totalSize,
+                ))
+            }
+        } catch (e: java.io.IOException) {
+            OmniLog.e(TAG, "Import failed for $modelId", e)
+            if (destDir.exists()) destDir.deleteRecursively()
+            return mapOf("success" to false, "error" to "Copy failed: ${e.message}")
+        }
+
+        emitConfigChanged()
+        emitEvent("downloads_changed", emptyMap())
+        OmniInferBuiltinProviderRefresher.refreshAsync(context, "mnn_import:$modelId")
+        return mapOf("success" to true, "modelId" to modelId)
+    }
+
     // ---- Event emission -----------------------------------------------------------------------
 
     private fun emitConfigChanged() {

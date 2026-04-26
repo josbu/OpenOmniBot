@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/mnn_local_models_service.dart';
@@ -59,6 +60,10 @@ class _LocalModelsPageState extends State<LocalModelsPage>
   bool _loadingInstalled = true;
   bool _loadingMarket = true;
   bool _loadingConfig = true;
+
+  bool _importing = false;
+  double _importProgress = 0.0;
+  String _importModelId = '';
 
   @override
   void initState() {
@@ -318,6 +323,21 @@ class _LocalModelsPageState extends State<LocalModelsPage>
         _refreshInstalled(silent: true);
         _refreshMarket(silent: true);
         break;
+      case 'import_progress':
+        final importModelId = (event.payload['modelId'] ?? '').toString();
+        final importProgress =
+            (event.payload['progress'] as num?)?.toDouble() ?? 0.0;
+        if (mounted) {
+          setState(() {
+            _importProgress = importProgress;
+            _importModelId = importModelId;
+            if (importProgress >= 1.0) {
+              _importing = false;
+              _refreshInstalled(silent: true);
+            }
+          });
+        }
+        break;
       case 'config_changed':
         final configPayload = event.payload['config'];
         if (configPayload is Map) {
@@ -458,6 +478,80 @@ class _LocalModelsPageState extends State<LocalModelsPage>
     }
   }
 
+  Future<void> _importModel() async {
+    final backend = _config?.backend ?? _llamaCppBackend;
+    final isLlama = backend == _llamaCppBackend;
+
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      type: FileType.any,
+    );
+    if (result == null || result.files.isEmpty || !mounted) return;
+
+    final filePath = result.files.single.path;
+    if (filePath == null || filePath.isEmpty) {
+      showToast(context.l10n.localModelsImportNoFile, type: ToastType.error);
+      return;
+    }
+
+    final fileName = filePath.split('/').last;
+    if (isLlama) {
+      if (!fileName.endsWith('.gguf')) {
+        showToast(
+          context.l10n.localModelsImportFailed('Not a .gguf file'),
+          type: ToastType.error,
+        );
+        return;
+      }
+    } else {
+      if (fileName != 'config.json') {
+        showToast(
+          context.l10n.localModelsImportSelectConfigJson,
+          type: ToastType.error,
+        );
+        return;
+      }
+    }
+
+    setState(() {
+      _importing = true;
+      _importProgress = 0.0;
+      _importModelId = '';
+    });
+
+    try {
+      final response = await MnnLocalModelsService.importModel(
+        filePath: filePath,
+      );
+      if (!mounted) return;
+
+      final success = response['success'] == true;
+      if (success) {
+        showToast(
+          context.l10n.localModelsImportSuccess,
+          type: ToastType.success,
+        );
+        _refreshInstalled(silent: true);
+      } else {
+        final error = (response['error'] ?? '').toString();
+        showToast(
+          context.l10n.localModelsImportFailed(error),
+          type: ToastType.error,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showToast(
+          context.l10n.localModelsImportFailed(e.toString()),
+          type: ToastType.error,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _importing = false);
+      }
+    }
+  }
 
   void _updateMarketDownloadState(
     String modelId,
@@ -1124,6 +1218,54 @@ class _LocalModelsPageState extends State<LocalModelsPage>
             label: context.l10n.localModelsInstalled,
             subtitle: context.l10n.localModelsInstalledDesc,
           ),
+          if (_importing)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    context.l10n.localModelsImporting(_importModelId),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: _secondaryTextColor,
+                      fontFamily: AppTextStyles.fontFamily,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: _importProgress,
+                      minHeight: 8,
+                      backgroundColor: _alpha(_secondaryTextColor, 0.14),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        _toneBaseColor(_AccentTone.info),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${(_importProgress * 100).toStringAsFixed(1)}%',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _secondaryTextColor,
+                      fontFamily: AppTextStyles.fontFamily,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: FilledButton.icon(
+                onPressed: _importModel,
+                style: _softButtonStyle(tone: _AccentTone.accent),
+                icon: const Icon(Icons.folder_open_rounded, size: 18),
+                label: Text(context.l10n.localModelsImportFromDevice),
+              ),
+            ),
           _buildSearchBar(
             controller: _installedSearchController,
             hintText: context.l10n.localModelsSearchHint,

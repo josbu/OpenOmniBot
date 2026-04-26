@@ -1982,6 +1982,42 @@ abstract class AppLocalizations {
   /// **'未下载'**
   String get localModelsNotDownloaded;
 
+  /// No description provided for @localModelsImportFromDevice.
+  ///
+  /// In zh, this message translates to:
+  /// **'从设备导入'**
+  String get localModelsImportFromDevice;
+
+  /// No description provided for @localModelsImportNoFile.
+  ///
+  /// In zh, this message translates to:
+  /// **'未选择文件'**
+  String get localModelsImportNoFile;
+
+  /// No description provided for @localModelsImportSelectConfigJson.
+  ///
+  /// In zh, this message translates to:
+  /// **'请选择 MNN 模型目录中的 config.json 文件'**
+  String get localModelsImportSelectConfigJson;
+
+  /// No description provided for @localModelsImportSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'模型导入成功'**
+  String get localModelsImportSuccess;
+
+  /// No description provided for @localModelsImportFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'导入失败：{reason}'**
+  String localModelsImportFailed(String reason);
+
+  /// No description provided for @localModelsImporting.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在导入 {modelId}...'**
+  String localModelsImporting(String modelId);
+
   /// No description provided for @alarmSaved.
   ///
   /// In zh, this message translates to:

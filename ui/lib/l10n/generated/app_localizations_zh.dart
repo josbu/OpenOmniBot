@@ -999,6 +999,29 @@ class AppLocalizationsZh extends AppLocalizations {
   String get localModelsNotDownloaded => '未下载';
 
   @override
+  String get localModelsImportFromDevice => '从设备导入';
+
+  @override
+  String get localModelsImportNoFile => '未选择文件';
+
+  @override
+  String get localModelsImportSelectConfigJson =>
+      '请选择 MNN 模型目录中的 config.json 文件';
+
+  @override
+  String get localModelsImportSuccess => '模型导入成功';
+
+  @override
+  String localModelsImportFailed(String reason) {
+    return '导入失败：$reason';
+  }
+
+  @override
+  String localModelsImporting(String modelId) {
+    return '正在导入 $modelId...';
+  }
+
+  @override
   String get alarmSaved => '闹钟设置已保存';
 
   @override

@@ -90,6 +90,21 @@ class MnnLocalModelsChannel {
                 result.success(backend)
                 return
             }
+
+            "importModel" -> {
+                val filePath = call.argument<String>("filePath")
+                if (filePath.isNullOrBlank()) {
+                    result.error(ERROR_CODE, "filePath is required", null)
+                    return
+                }
+                when (getSelectedBackend()) {
+                    OmniInferLocalRuntime.BACKEND_OMNIINFER_MNN ->
+                        runSuspend(result) { OmniInferMnnModelsManager.importModel(filePath) }
+                    else ->
+                        runSuspend(result) { OmniInferModelsManager.importModel(filePath) }
+                }
+                return
+            }
         }
 
         when (getSelectedBackend()) {

@@ -1060,6 +1060,29 @@ class AppLocalizationsEn extends AppLocalizations {
   String get localModelsNotDownloaded => 'Not Downloaded';
 
   @override
+  String get localModelsImportFromDevice => 'Import from Device';
+
+  @override
+  String get localModelsImportNoFile => 'No file selected';
+
+  @override
+  String get localModelsImportSelectConfigJson =>
+      'Please select config.json from the MNN model directory';
+
+  @override
+  String get localModelsImportSuccess => 'Model imported successfully';
+
+  @override
+  String localModelsImportFailed(String reason) {
+    return 'Import failed: $reason';
+  }
+
+  @override
+  String localModelsImporting(String modelId) {
+    return 'Importing $modelId...';
+  }
+
+  @override
   String get alarmSaved => 'Alarm settings saved';
 
   @override
