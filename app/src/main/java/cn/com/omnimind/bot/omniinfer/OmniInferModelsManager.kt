@@ -8,6 +8,7 @@ import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -65,6 +66,8 @@ object OmniInferModelsManager {
     fun setEventDispatcher(dispatcher: ((Map<String, Any?>) -> Unit)?) {
         eventDispatcher = dispatcher
     }
+
+    fun activeDownloadCount(): Int = activeDownloads.size
 
     fun clear() {
         activeDownloads.values.forEach { it.cancel() }
@@ -186,6 +189,7 @@ object OmniInferModelsManager {
             "id" to id,
             "name" to id,
             "category" to "llm",
+            "backend" to OmniInferLocalRuntime.BACKEND_LLAMA_CPP,
             "source" to "llama.cpp",
             "description" to "",
             "path" to file.absolutePath,
@@ -332,7 +336,7 @@ object OmniInferModelsManager {
             val id = "$modelName-$quantName"
             val localFile = findModelFile(id)
             val activeDownload = activeDownloads[id]
-            val hasPausedPart = buildPausedMapFromPartFiles(id) != null
+            val hasPausedPart = buildPausedMapFromPartFiles(id, sizeBytes) != null
             // Hide models that have no repo for the current source,
             // unless already downloaded, actively downloading, or paused.
             if (repo.isEmpty() && localFile == null && activeDownload == null && !hasPausedPart) {
@@ -341,7 +345,7 @@ object OmniInferModelsManager {
             val downloadMap = when {
                 activeDownload != null -> activeDownload.toMap()
                 localFile != null -> completedDownloadMap(localFile.length())
-                else -> buildPausedMapFromPartFiles(id)
+                else -> buildPausedMapFromPartFiles(id, sizeBytes)
             }
             mapOf(
                 "id" to id,
@@ -407,7 +411,11 @@ object OmniInferModelsManager {
         val mmprojUrl = if (resolved.needsMmproj) buildDownloadUrl(source, resolved.repo, "mmproj-F16.gguf") else null
         val mmprojDest = if (resolved.needsMmproj) File(modelSubDir, "mmproj-F16.gguf") else null
         val task = DownloadTask(modelId, url, destination, mmprojUrl, mmprojDest)
+        task.initFromPartFile(lookupMarketFileSize(modelId))
         activeDownloads[modelId] = task
+        appContext?.let {
+            ModelDownloadForegroundService.start(it, activeDownloads.size, modelId)
+        }
         task.start()
     }
 
@@ -424,6 +432,7 @@ object OmniInferModelsManager {
             )
         }
         emitEvent("downloads_changed", mapOf("modelId" to modelId))
+        appContext?.let { ModelDownloadForegroundService.stopIfIdle(it) }
     }
 
     suspend fun deleteModel(modelId: String): List<Map<String, Any?>> {
@@ -475,6 +484,21 @@ object OmniInferModelsManager {
             }
         }
         return null
+    }
+
+    /** Look up the expected file size (bytes) for [modelId] from cached market data. */
+    private fun lookupMarketFileSize(modelId: String): Long {
+        ensureMarketSeedLoaded()
+        for (model in cachedMarketModels) {
+            val modelName = model["modelName"]?.jsonPrimitive?.contentOrNull ?: continue
+            val quants = model["quants"]?.jsonObject ?: continue
+            for ((quantName, quantObj) in quants) {
+                if ("$modelName-$quantName" == modelId) {
+                    return quantObj.jsonObject["size_bytes"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
+                }
+            }
+        }
+        return 0L
     }
 
     private fun buildDownloadUrl(source: String, repo: String, fileName: String): String {
@@ -571,18 +595,20 @@ object OmniInferModelsManager {
         eventDispatcher?.invoke(mapOf("type" to type) + payload)
     }
 
-    private fun buildPausedMapFromPartFiles(modelId: String): Map<String, Any?>? {
+    private fun buildPausedMapFromPartFiles(modelId: String, knownTotalSize: Long = 0L): Map<String, Any?>? {
         val modelSubDir = File(getModelDir(), modelId)
         if (!modelSubDir.isDirectory) return null
         val partFile = File(modelSubDir, "$modelId.gguf.part")
         if (!partFile.exists()) return null
         val savedSize = partFile.length()
+        val totalSize = if (knownTotalSize > 0) knownTotalSize else lookupMarketFileSize(modelId)
+        val progress = if (totalSize > 0) savedSize.toDouble() / totalSize else 0.0
         return mapOf(
             "state" to 4,
             "stateLabel" to "paused",
-            "progress" to 0.0,
+            "progress" to progress,
             "savedSize" to savedSize,
-            "totalSize" to 0L,
+            "totalSize" to totalSize,
             "speedInfo" to "",
             "errorMessage" to "",
             "progressStage" to "",
@@ -625,6 +651,11 @@ object OmniInferModelsManager {
         private val mmprojUrl: String? = null,
         private val mmprojDest: File? = null,
     ) {
+        companion object {
+            private const val MAX_RETRIES = 3
+            private const val INITIAL_RETRY_DELAY_MS = 2000L
+        }
+
         private var call: Call? = null
         private val cancelled = AtomicBoolean(false)
 
@@ -639,6 +670,16 @@ object OmniInferModelsManager {
 
         @Volatile
         private var stage: String = "downloading"
+
+        /** Pre-populate progress from an existing .part file so the UI doesn't flash 0%. */
+        fun initFromPartFile(marketFileSize: Long) {
+            val partFile = File(destFile.parent, destFile.name + ".part")
+            if (partFile.exists()) {
+                savedSize = partFile.length()
+                totalSize = marketFileSize
+                progress = if (totalSize > 0) savedSize.toDouble() / totalSize else 0.0
+            }
+        }
 
         fun cancel() {
             cancelled.set(true)
@@ -722,12 +763,37 @@ object OmniInferModelsManager {
             return false
         }
 
+        /**
+         * Download a file with automatic retry on transient IO errors (e.g. "software caused
+         * connection abort" when Android suspends the app). Retries use exponential backoff;
+         * the .part file + Range header ensure no data is re-downloaded.
+         */
+        private suspend fun downloadFileWithRetry(fileUrl: String, dest: File): Boolean {
+            var lastException: IOException? = null
+            for (attempt in 0..MAX_RETRIES) {
+                if (cancelled.get()) return false
+                try {
+                    return withContext(Dispatchers.IO) { downloadFile(fileUrl, dest) }
+                } catch (e: IOException) {
+                    if (cancelled.get()) return false
+                    lastException = e
+                    if (attempt < MAX_RETRIES) {
+                        val delayMs = INITIAL_RETRY_DELAY_MS * (1L shl attempt)
+                        Log.w(TAG, "[Download] Retrying $modelId (attempt ${attempt + 1}/$MAX_RETRIES) " +
+                            "after ${delayMs}ms: ${e.message}")
+                        delay(delayMs)
+                    }
+                }
+            }
+            throw lastException!!
+        }
+
         fun start() {
             OmniInferModelsManager.scope.launch {
                 try {
                     stage = "downloading"
                     Log.d(TAG, "[Download] task started: $modelId, url=$url")
-                    if (!downloadFile(url, destFile)) {
+                    if (!downloadFileWithRetry(url, destFile)) {
                         Log.d(TAG, "[Download] task cancelled during main file: $modelId")
                         return@launch
                     }
@@ -741,7 +807,7 @@ object OmniInferModelsManager {
                             totalSize = 0L
                             Log.d(TAG, "[Download] downloading mmproj: $modelId")
                             OmniInferModelsManager.emitEvent("downloads_changed", mapOf("modelId" to modelId))
-                            if (!downloadFile(mmprojUrl, mmprojDest)) {
+                            if (!downloadFileWithRetry(mmprojUrl, mmprojDest)) {
                                 Log.d(TAG, "[Download] task cancelled during mmproj: $modelId")
                                 return@launch
                             }
@@ -753,6 +819,7 @@ object OmniInferModelsManager {
                         OmniInferModelsManager.activeDownloads.remove(modelId)
                         OmniInferModelsManager.emitEvent("downloads_changed", mapOf("modelId" to modelId))
                         OmniInferModelsManager.appContext?.let {
+                            ModelDownloadForegroundService.stopIfIdle(it)
                             OmniInferBuiltinProviderRefresher.refreshAsync(
                                 it,
                                 "llama_download_finished:$modelId"
@@ -770,6 +837,9 @@ object OmniInferModelsManager {
                                 "error" to (error.message ?: "unknown"),
                             )
                         )
+                    }
+                    OmniInferModelsManager.appContext?.let {
+                        ModelDownloadForegroundService.stopIfIdle(it)
                     }
                 }
             }

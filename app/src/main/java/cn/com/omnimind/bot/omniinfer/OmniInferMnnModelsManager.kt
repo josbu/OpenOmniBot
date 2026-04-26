@@ -57,6 +57,8 @@ object OmniInferMnnModelsManager {
         eventDispatcher = dispatcher
     }
 
+    fun activeDownloadCount(): Int = activeDownloads.size
+
     fun clear() {
         activeDownloads.values.forEach { it.cancel() }
         activeDownloads.clear()
@@ -268,7 +270,20 @@ object OmniInferMnnModelsManager {
             destDir = destDir,
         )
         activeDownloads[resolved.downloadId] = task
-        emitDownloadUpdate(resolved.modelId, task.info)
+        ModelDownloadForegroundService.start(
+            context, activeDownloads.size, resolved.item.modelName,
+        )
+
+        // Calculate existing progress from partially downloaded files so the UI
+        // doesn't briefly show 0% when resuming a paused download.
+        val savedSize = destDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        val totalSize = if (resolved.item.fileSize > 0L) resolved.item.fileSize else savedSize
+        val initialProgress = if (totalSize > 0 && savedSize > 0) savedSize.toDouble() / totalSize else 0.0
+        emitDownloadUpdate(resolved.modelId, task.info.copy(
+            savedSize = savedSize,
+            totalSize = totalSize,
+            progress = initialProgress,
+        ))
 
         scope.launch {
             try {
@@ -278,6 +293,7 @@ object OmniInferMnnModelsManager {
                 activeDownloads.remove(resolved.downloadId)
                 emitDownloadUpdate(resolved.modelId, task.info)
                 emitEvent("downloads_changed", emptyMap())
+                ModelDownloadForegroundService.stopIfIdle(context)
                 OmniInferBuiltinProviderRefresher.refreshAsync(
                     context, "mnn_download_finished:${resolved.modelId}"
                 )
@@ -285,6 +301,7 @@ object OmniInferMnnModelsManager {
                 activeDownloads.remove(resolved.downloadId)
                 emitDownloadUpdate(resolved.modelId, task.info)
                 emitEvent("downloads_changed", emptyMap())
+                ModelDownloadForegroundService.stopIfIdle(context)
             }
         }
     }
@@ -296,6 +313,7 @@ object OmniInferMnnModelsManager {
         val pausedInfo = task.info.copy(downloadState = MnnDownloadState.DOWNLOAD_PAUSED)
         emitDownloadUpdate(resolved.modelId, pausedInfo)
         emitEvent("downloads_changed", emptyMap())
+        appContext?.let { ModelDownloadForegroundService.stopIfIdle(it) }
     }
 
     suspend fun deleteModel(modelId: String): List<Map<String, Any?>> {
@@ -565,6 +583,7 @@ object OmniInferMnnModelsManager {
             "id" to record.id,
             "name" to record.name,
             "category" to "llm",
+            "backend" to BACKEND_NAME,
             "source" to record.source,
             "description" to record.description,
             "path" to record.path,
