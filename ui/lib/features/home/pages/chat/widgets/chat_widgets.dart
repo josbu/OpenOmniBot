@@ -1186,6 +1186,7 @@ class _ChatMessageListState extends State<ChatMessageList> {
   bool _outerScrollWasUserDriven = false;
   bool _isAutoLoadingHistory = false;
   static const double _latestEdgeTolerance = 48.0;
+  static const double _manualLatestAttachTolerance = 2.0;
   static const double _historyLoadTriggerExtent = 180.0;
   ObservableChatMessageList? _observableMessages;
 
@@ -1204,7 +1205,8 @@ class _ChatMessageListState extends State<ChatMessageList> {
       _autoStickToLatest = true;
       _outerScrollWasUserDriven = false;
     }
-    if (_autoStickToLatest || _isNearLatest()) {
+    if (_autoStickToLatest ||
+        _isNearLatest(null, _manualLatestAttachTolerance)) {
       _autoStickToLatest = true;
       _scheduleStickToLatest();
     }
@@ -1223,17 +1225,20 @@ class _ChatMessageListState extends State<ChatMessageList> {
     return widget.scrollController.positions.toList(growable: false);
   }
 
-  bool _isNearLatest([ScrollMetrics? metrics]) {
+  bool _isNearLatest([
+    ScrollMetrics? metrics,
+    double tolerance = _latestEdgeTolerance,
+  ]) {
     final resolvedMetrics = metrics;
     if (resolvedMetrics != null) {
-      return _distanceToLatest(resolvedMetrics) <= _latestEdgeTolerance;
+      return _distanceToLatest(resolvedMetrics) <= tolerance;
     }
     final positions = _attachedPositions();
     if (positions.isEmpty) {
       return true;
     }
     return positions.every(
-      (position) => _distanceToLatest(position) <= _latestEdgeTolerance,
+      (position) => _distanceToLatest(position) <= tolerance,
     );
   }
 
@@ -1424,11 +1429,15 @@ class _ChatMessageListState extends State<ChatMessageList> {
             notification.dragDetails != null);
     if (isUserDrivenUpdate) {
       _outerScrollWasUserDriven = true;
-      _autoStickToLatest = _isNearLatest(notification.metrics);
+      if (_distanceToLatest(notification.metrics) >
+          _manualLatestAttachTolerance) {
+        _autoStickToLatest = false;
+      }
       return false;
     }
     if (notification is ScrollEndNotification) {
-      if (_outerScrollWasUserDriven && _isNearLatest(notification.metrics)) {
+      if (_outerScrollWasUserDriven &&
+          _isNearLatest(notification.metrics, _manualLatestAttachTolerance)) {
         _autoStickToLatest = true;
       }
       _outerScrollWasUserDriven = false;

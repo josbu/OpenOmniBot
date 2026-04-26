@@ -144,6 +144,67 @@ void main() {
     expect(controller.offset, closeTo(controller.position.maxScrollExtent, 1));
   });
 
+  testWidgets(
+    'small manual drag away from latest disables follow-up auto stick',
+    (tester) async {
+      final controller = ScrollController();
+      var messages = _buildSimpleAssistantMessages(20, prefix: '初始消息');
+      late StateSetter setState;
+
+      await tester.pumpWidget(
+        _buildLocalizedApp(
+          child: StatefulBuilder(
+            builder: (context, stateSetter) {
+              setState = stateSetter;
+              return SizedBox(
+                width: 400,
+                height: 520,
+                child: ChatMessageList(
+                  messages: messages,
+                  scrollController: controller,
+                  onBeforeTaskExecute: () async {},
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        controller.offset,
+        closeTo(controller.position.maxScrollExtent, 1),
+      );
+
+      await tester.drag(find.byType(ListView), const Offset(0, 36));
+      await tester.pumpAndSettle();
+
+      final movedOffset = controller.offset;
+      expect(movedOffset, lessThan(controller.position.maxScrollExtent));
+      expect(
+        movedOffset,
+        greaterThan(controller.position.maxScrollExtent - 48),
+      );
+
+      setState(() {
+        messages = <ChatMessageModel>[
+          ChatMessageModel.assistantMessage('新的最新消息', id: 'new-latest'),
+          ...messages,
+        ];
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pumpAndSettle();
+
+      expect(
+        controller.offset,
+        closeTo(movedOffset, 2),
+        reason: 'A small manual drag away from latest should not snap back.',
+      );
+      expect(controller.offset, lessThan(controller.position.maxScrollExtent));
+    },
+  );
+
   testWidgets('latest user message no longer shows inline edit button', (
     tester,
   ) async {
