@@ -1086,7 +1086,7 @@ class _LocalModelsPageState extends State<LocalModelsPage>
         ),
         DropdownMenuItem(
           value: _omniinferQnnBackend,
-          child: Text('omniinfer-qnn (NPU)'),
+          child: Text('omniinfer-npu'),
         ),
       ],
       onChanged: (value) async {
@@ -1915,7 +1915,7 @@ class _LocalModelsPageState extends State<LocalModelsPage>
       case _omniinferMnnBackend:
         return 'omniinfer-mnn';
       case _omniinferQnnBackend:
-        return 'omniinfer-qnn (NPU)';
+        return 'omniinfer-npu';
       case _llamaCppBackend:
       default:
         return 'OmniInfer-llama';
