@@ -134,11 +134,15 @@ object OmniInferQnnMarketRepository {
     )
 
     fun getDeviceSoc(): String {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val soc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             Build.SOC_MODEL.trim()
         } else {
             ""
         }
+        OmniLog.i(TAG, "[getDeviceSoc] Build.SOC_MODEL='${Build.SOC_MODEL}', " +
+            "Build.HARDWARE='${Build.HARDWARE}', Build.BOARD='${Build.BOARD}', " +
+            "Build.DEVICE='${Build.DEVICE}', normalized='$soc'")
+        return soc
     }
 
     fun listModels(filterBySoc: Boolean = true): List<ResolvedQnnModel> {

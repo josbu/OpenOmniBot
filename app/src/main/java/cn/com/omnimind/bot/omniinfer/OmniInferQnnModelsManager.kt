@@ -457,12 +457,15 @@ object OmniInferQnnModelsManager {
     private fun installedRecordToMap(record: InstalledQnnRecord): Map<String, Any?> {
         val activeModelId = getActiveModelId()
         val loadedModelId = getLoadedModelId()
+        val marketModel = OmniInferQnnMarketRepository.findModel(record.modelId)
+        val socInfo = marketModel?.let { "${it.entry.soc} (Snapdragon ${it.entry.socLabel})" }
+            ?: OmniInferQnnMarketRepository.getDeviceSoc()
         return mapOf(
             "id" to record.modelId,
             "name" to record.modelName,
             "category" to "llm",
             "source" to "ModelScope",
-            "description" to "ExecuTorch QNN model (NPU)",
+            "description" to "ExecuTorch QNN · $socInfo · NPU",
             "path" to record.path,
             "vendor" to "Qwen",
             "tags" to listOf("NPU", "QNN"),
@@ -516,10 +519,10 @@ object OmniInferQnnModelsManager {
 
         return mapOf(
             "id" to resolved.modelId,
-            "name" to "${resolved.entry.modelName} (${resolved.entry.socLabel})",
+            "name" to resolved.entry.modelName,
             "category" to "llm",
             "source" to "ModelScope",
-            "description" to "ExecuTorch QNN · Snapdragon ${resolved.entry.socLabel} · NPU",
+            "description" to "ExecuTorch QNN · ${resolved.entry.soc} (Snapdragon ${resolved.entry.socLabel}) · NPU",
             "path" to modelDir.absolutePath,
             "vendor" to "Qwen",
             "tags" to listOf("NPU", "QNN"),
