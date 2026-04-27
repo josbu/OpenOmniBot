@@ -858,6 +858,7 @@ class _ConversationModelSelectorPopupEntryState
   static const Map<String, String> _kBackendDisplayNames = {
     'llama.cpp': 'llama.cpp',
     'omniinfer-mnn': 'MNN',
+    'llm': 'NPU',
     'manual': '手动添加',
   };
   static const List<String> _kBackendOrder = [
