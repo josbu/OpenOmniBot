@@ -13,7 +13,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       setState(() {
         _isCompanionModeEnabled = false;
       });
-      _resetCompanionCountdown();
     });
 
     SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -335,16 +334,12 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       setState(() {
         _isCompanionModeEnabled = isRunning;
       });
-      if (!isRunning) {
-        _resetCompanionCountdown();
-      }
     } catch (e) {
       debugPrint('检查陪伴状态失败: $e');
       if (!mounted) return;
       setState(() {
         _isCompanionModeEnabled = false;
       });
-      _resetCompanionCountdown();
     }
   }
 
@@ -425,10 +420,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       setState(() {
         _isCompanionModeEnabled = true;
         _isCompanionToggleLoading = false;
-        _companionCountdown = _ChatPageStateBase.kCompanionCountdownDuration;
-        _showCompanionCountdown = true;
       });
-      _startCompanionCountdown();
     } catch (e) {
       debugPrint('开启陪伴失败: $e');
       showToast('开启陪伴失败', type: ToastType.error);
@@ -456,7 +448,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
         _isCompanionModeEnabled = false;
         _isCompanionToggleLoading = false;
       });
-      _resetCompanionCountdown();
     } catch (e) {
       debugPrint('结束陪伴失败: $e');
       showToast('结束陪伴失败', type: ToastType.error);
@@ -465,66 +456,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
         _isCompanionToggleLoading = false;
       });
       await _checkCompanionTaskState();
-    }
-  }
-
-  @override
-  void _startCompanionCountdown() {
-    _companionCountdownTimer?.cancel();
-    _companionCountdownTimer = Timer.periodic(const Duration(seconds: 1), (
-      timer,
-    ) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-
-      var shouldPressHome = false;
-      setState(() {
-        _companionCountdown -= 1;
-        if (_companionCountdown <= 0) {
-          _showCompanionCountdown = false;
-          shouldPressHome = true;
-          timer.cancel();
-        }
-      });
-
-      if (shouldPressHome) {
-        unawaited(_pressHomeAfterCompanionCountdown());
-      }
-    });
-  }
-
-  @override
-  void _resetCompanionCountdown() {
-    _companionCountdownTimer?.cancel();
-    _companionCountdownTimer = null;
-    if (!mounted) {
-      _companionCountdown = _ChatPageStateBase.kCompanionCountdownDuration;
-      _showCompanionCountdown = false;
-      return;
-    }
-    setState(() {
-      _companionCountdown = _ChatPageStateBase.kCompanionCountdownDuration;
-      _showCompanionCountdown = false;
-    });
-  }
-
-  @override
-  void _interruptCompanionAutoHomeIfNeeded() {
-    if (!_isCompanionModeEnabled || !_showCompanionCountdown) {
-      return;
-    }
-    _resetCompanionCountdown();
-    unawaited(AssistsMessageService.cancelCompanionGoHome());
-  }
-
-  @override
-  Future<void> _pressHomeAfterCompanionCountdown() async {
-    if (!_isCompanionModeEnabled) return;
-    final success = await AssistsMessageService.pressHome();
-    if (!success && mounted) {
-      showToast('Auto return home failed', type: ToastType.error);
     }
   }
 
@@ -557,7 +488,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _openClawBaseUrlController.dispose();
     _openClawTokenController.dispose();
     _openClawUserIdController.dispose();
-    _companionCountdownTimer?.cancel();
     super.dispose();
   }
 
@@ -887,8 +817,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
         state == AppLifecycleState.detached) {
       unawaited(_runtimeCoordinator.flushAllPendingPersistence());
       unawaited(_persistVisibleThreadTargetIfNeeded());
-      _resetCompanionCountdown();
-      unawaited(AssistsMessageService.cancelCompanionGoHome());
     }
   }
 }

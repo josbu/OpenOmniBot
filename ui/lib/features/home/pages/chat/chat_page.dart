@@ -95,8 +95,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
         TaskExecutionHandler,
         ConversationManager
     implements RouteAware {
-  static const int kCompanionCountdownDuration = 2;
-
   // ===================== Controllers =====================
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _normalMessageScrollController = ScrollController();
@@ -303,9 +301,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   bool _hasInitializedHalfScreen = false;
   bool _isCompanionModeEnabled = false;
   bool _isCompanionToggleLoading = false;
-  int _companionCountdown = kCompanionCountdownDuration;
-  bool _showCompanionCountdown = false;
-  Timer? _companionCountdownTimer;
   AppUpdateStatus? _appUpdateStatus;
   ModalRoute<dynamic>? _subscribedRoute;
   StreamSubscription<Map<String, dynamic>>?
@@ -1541,14 +1536,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   Future<void> _executeCompanionStart();
 
   Future<void> _cancelCompanionMode();
-
-  void _startCompanionCountdown();
-
-  void _resetCompanionCountdown();
-
-  void _interruptCompanionAutoHomeIfNeeded();
-
-  Future<void> _pressHomeAfterCompanionCountdown();
 
   void _onFocusChange();
 
