@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/deep_thinking_card.dart';
+import 'package:ui/features/home/pages/chat/chat_page_models.dart';
 import 'package:ui/features/home/pages/chat/widgets/chat_widgets.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
 import 'package:ui/models/chat_message_model.dart';
@@ -354,6 +355,58 @@ void main() {
     },
   );
 
+  testWidgets(
+    'streaming deep thinking updates keep the message list pinned to latest',
+    (tester) async {
+      final controller = ScrollController();
+      final messages = ObservableChatMessageList()
+        ..replaceAllMessages(_buildStreamingThinkingMessages(thinkingLines: 1));
+
+      await tester.pumpWidget(
+        _buildLocalizedApp(
+          child: SizedBox(
+            width: 400,
+            height: 520,
+            child: ChatMessageList(
+              messages: messages,
+              scrollController: controller,
+              onBeforeTaskExecute: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+
+      expect(
+        controller.offset,
+        closeTo(controller.position.maxScrollExtent, 1),
+      );
+
+      messages[0] = ChatMessageModel.cardMessage(<String, dynamic>{
+        'type': 'deep_thinking',
+        'thinkingContent': List.generate(
+          40,
+          (index) => '第 ${index + 1} 行流式思考内容，验证列表持续跟随最新位置。',
+        ).join('\n'),
+        'stage': 1,
+        'isLoading': true,
+        'isCollapsible': true,
+        'taskID': 'streaming-thinking-card',
+      }, id: 'streaming-thinking-card');
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 16));
+
+      expect(
+        controller.offset,
+        closeTo(controller.position.maxScrollExtent, 1),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('chat history no longer uses pull-to-refresh wrapper', (
     tester,
   ) async {
@@ -493,4 +546,31 @@ List<ChatMessageModel> _buildSimpleAssistantMessages(
       id: '$idPrefix-$resolvedIndex',
     );
   });
+}
+
+List<ChatMessageModel> _buildStreamingThinkingMessages({
+  required int thinkingLines,
+}) {
+  return <ChatMessageModel>[
+    ChatMessageModel.cardMessage(<String, dynamic>{
+      'type': 'deep_thinking',
+      'thinkingContent': List.generate(
+        thinkingLines,
+        (index) => '第 ${index + 1} 行流式思考内容，验证列表持续跟随最新位置。',
+      ).join('\n'),
+      'stage': 1,
+      'isLoading': true,
+      'isCollapsible': true,
+      'taskID': 'streaming-thinking-card',
+    }, id: 'streaming-thinking-card'),
+    ...List.generate(18, (index) {
+      return ChatMessageModel.assistantMessage(
+        List.generate(
+          5,
+          (line) => '较早消息 ${index + 1} - 第 ${line + 1} 行',
+        ).join('\n'),
+        id: 'streaming-older-$index',
+      );
+    }),
+  ];
 }

@@ -42,6 +42,7 @@ class DeepThinkingCard extends StatefulWidget {
   /// 外层消息列表滚动控制器，用于内外滚动联动
   final ScrollController? parentScrollController;
   final VoidCallback? onParentScrollHandoff;
+  final VoidCallback? onStreamingTextLayoutChanged;
   final double textScale;
   final Color textColor;
   final bool showStatusAvatar;
@@ -60,6 +61,7 @@ class DeepThinkingCard extends StatefulWidget {
     this.isCollapsible = false,
     this.parentScrollController,
     this.onParentScrollHandoff,
+    this.onStreamingTextLayoutChanged,
     this.textScale = 1,
     this.textColor = const Color(0x80353E53),
     this.showStatusAvatar = true,
@@ -134,11 +136,19 @@ class _DeepThinkingCardState extends State<DeepThinkingCard> {
     }
 
     final textChanged = widget.thinkingText != oldWidget.thinkingText;
+    final layoutChanged =
+        textChanged ||
+        widget.stage != oldWidget.stage ||
+        widget.isLoading != oldWidget.isLoading ||
+        widget.isCollapsible != oldWidget.isCollapsible;
 
     // 内容更新后自动跟随到最新文本，并更新渐变遮罩
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToLatestIfNeeded(force: textChanged);
       _checkOverflow();
+      if (layoutChanged) {
+        widget.onStreamingTextLayoutChanged?.call();
+      }
     });
   }
 
@@ -283,8 +293,17 @@ class _DeepThinkingCardState extends State<DeepThinkingCard> {
           _scrollController.jumpTo(top);
         }
         _checkOverflow();
+        widget.onStreamingTextLayoutChanged?.call();
       });
+      return;
     }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      widget.onStreamingTextLayoutChanged?.call();
+    });
   }
 
   bool _shouldAutoCollapse(DeepThinkingCard widget) {
