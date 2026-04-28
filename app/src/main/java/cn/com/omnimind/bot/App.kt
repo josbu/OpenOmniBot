@@ -14,6 +14,7 @@ import cn.com.omnimind.bot.mcp.McpServerManager
 import cn.com.omnimind.bot.omniinfer.OmniInferLocalRuntime
 import cn.com.omnimind.bot.omniinfer.OmniInferMnnModelsManager
 import cn.com.omnimind.bot.omniinfer.OmniInferModelsManager
+import cn.com.omnimind.bot.omniinfer.OmniInferQnnModelsManager
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import cn.com.omnimind.bot.update.AppUpdateManager
 import cn.com.omnimind.bot.util.NestedBackgroundStateUtil
@@ -117,8 +118,14 @@ class App : BaseApplication() {
                     if (ggufReady) {
                         return true
                     }
-                    return runCatching {
+                    val mnnReady = runCatching {
                         OmniInferMnnModelsManager.ensureModelReady(modelId)
+                    }.getOrDefault(false)
+                    if (mnnReady) {
+                        return true
+                    }
+                    return runCatching {
+                        OmniInferQnnModelsManager.ensureModelReady(modelId)
                     }.getOrDefault(false)
                 }
             }

@@ -199,6 +199,27 @@ object OmniInferQnnModelsManager {
         return getConfig()
     }
 
+    fun ensureModelReady(modelId: String): Boolean {
+        val normalizedModelId = modelId.trim()
+        if (normalizedModelId.isEmpty()) {
+            return false
+        }
+        val installed = scanInstalledModels().firstOrNull { it.modelId == normalizedModelId }
+            ?: return false
+        if (OmniInferLocalRuntime.isModelLoaded(BACKEND_NAME, installed.modelId)) {
+            return true
+        }
+        val marketModel = OmniInferQnnMarketRepository.findModel(normalizedModelId)
+        val decoderVersion = marketModel?.entry?.decoderModelVersion ?: "qwen3"
+        mmkv.encode(KEY_ACTIVE_MODEL_ID, installed.modelId)
+        return OmniInferLocalRuntime.loadModel(
+            modelId = installed.modelId,
+            modelPath = installed.ptePath,
+            backend = BACKEND_NAME,
+            extraConfig = mapOf("decoder_model_version" to decoderVersion),
+        )
+    }
+
     fun stopApiService(): Map<String, Any?> {
         OmniInferLocalRuntime.stop()
         emitConfigChanged()
