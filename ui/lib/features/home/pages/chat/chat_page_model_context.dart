@@ -511,6 +511,26 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         LegacyTextLocalizer.localize('Agent 模型已切换到 $modelId'),
         type: ToastType.success,
       );
+      // Eagerly preload OmniInfer local models so they're ready before first message
+      if (providerProfileId == 'omniinfer-local' ||
+          providerProfileId == 'mnn-local') {
+        MnnLocalModelsService.preloadModel(modelId: modelId).then((result) {
+          if (!mounted || result == null) return;
+          if (result['cancelled'] == true) return;
+          if (result['success'] == true) {
+            showToast(
+              LegacyTextLocalizer.localize('模型加载完成'),
+              type: ToastType.success,
+            );
+          } else {
+            final error = result['error'] ?? '';
+            showToast(
+              LegacyTextLocalizer.localize('模型加载失败：$error'),
+              type: ToastType.error,
+            );
+          }
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       showToast(
@@ -858,6 +878,7 @@ class _ConversationModelSelectorPopupEntryState
   static const Map<String, String> _kBackendDisplayNames = {
     'llama.cpp': 'llama.cpp',
     'omniinfer-mnn': 'MNN',
+    'llm': 'NPU',
     'manual': '手动添加',
   };
   static const List<String> _kBackendOrder = [
