@@ -21,6 +21,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class MnnLocalModelsChannel {
     companion object {
@@ -87,6 +89,7 @@ class MnnLocalModelsChannel {
     private var eventSink: EventChannel.EventSink? = null
     private val backendMmkv: MMKV by lazy { MMKV.mmkvWithID("omniinfer_config") }
     private var preloadJob: Job? = null
+    private val preloadMutex = Mutex()
 
     fun onCreate(context: Context) {
         this.context = context
@@ -189,22 +192,22 @@ class MnnLocalModelsChannel {
                 }
                 preloadJob?.cancel()
                 preloadJob = scope.launch(Dispatchers.IO) {
-                    OmniLog.i(TAG, "[preloadModel] stopping current model before preload")
-                    OmniInferLocalRuntime.stop()
-                    ensureActive()
-                    OmniLog.i(TAG, "[preloadModel] loading modelId=$modelId")
-                    val ggufReady = runCatching {
-                        OmniInferModelsManager.ensureModelReady(modelId)
-                    }.getOrDefault(false)
-                    if (ggufReady) return@launch
-                    ensureActive()
-                    val mnnReady = runCatching {
-                        OmniInferMnnModelsManager.ensureModelReady(modelId)
-                    }.getOrDefault(false)
-                    if (mnnReady) return@launch
-                    ensureActive()
-                    runCatching {
-                        OmniInferQnnModelsManager.ensureModelReady(modelId)
+                    preloadMutex.withLock {
+                        ensureActive()
+                        OmniLog.i(TAG, "[preloadModel] loading modelId=$modelId")
+                        val ggufReady = runCatching {
+                            OmniInferModelsManager.ensureModelReady(modelId)
+                        }.getOrDefault(false)
+                        if (ggufReady) return@launch
+                        ensureActive()
+                        val mnnReady = runCatching {
+                            OmniInferMnnModelsManager.ensureModelReady(modelId)
+                        }.getOrDefault(false)
+                        if (mnnReady) return@launch
+                        ensureActive()
+                        runCatching {
+                            OmniInferQnnModelsManager.ensureModelReady(modelId)
+                        }
                     }
                 }
                 result.success(null)
