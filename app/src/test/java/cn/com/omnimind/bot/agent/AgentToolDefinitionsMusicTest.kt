@@ -45,7 +45,7 @@ class AgentToolDefinitionsMusicTest {
 
     @Test
     fun `schedule subagent tool description requires execution prompt instead of scheduling wording`() {
-        val scheduleTool = AgentToolDefinitions.staticTools()
+        val scheduleTool = AgentToolDefinitions.staticTools(PromptLocale.ZH_CN)
             .first { ((it["function"] as JsonObject)["name"]?.jsonPrimitive?.contentOrNull) == "schedule_task_create" }
         val function = scheduleTool["function"] as JsonObject
         val parameters = function["parameters"] as JsonObject
