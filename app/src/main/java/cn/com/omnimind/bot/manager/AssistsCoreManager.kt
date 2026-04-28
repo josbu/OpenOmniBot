@@ -57,6 +57,7 @@ import cn.com.omnimind.bot.agent.AgentAlarmToolService
 import cn.com.omnimind.bot.agent.AgentAiCapabilityConfigSync
 import cn.com.omnimind.bot.agent.AgentConversationContextCompactor
 import cn.com.omnimind.bot.agent.AgentTextSanitizer
+import cn.com.omnimind.bot.agent.AgentConversationModePolicy
 import cn.com.omnimind.bot.agent.AgentModelOverride
 import cn.com.omnimind.bot.agent.AgentResult
 import cn.com.omnimind.bot.agent.AgentConversationHistoryRepository
@@ -3719,6 +3720,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             conversationId = conversationId,
             call = call
         )
+        val effectiveUserMessage = scheduledSubagentMeta?.let { meta ->
+            AgentConversationModePolicy.buildScheduledSubagentExecutionMessage(
+                rawUserMessage = userMessage,
+                scheduleTaskTitle = meta.scheduleTaskTitle,
+                locale = currentLocale()
+            )
+        } ?: userMessage
         val modelOverride = resolveAgentModelOverride(
             call.argument<Map<String, Any?>>("modelOverride")
         )
@@ -4045,13 +4053,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 }
 
                 conversationId?.let { normalizedConversationId ->
-                    if (userMessage.isNotBlank() || attachments.isNotEmpty()) {
+                    if (effectiveUserMessage.isNotBlank() || attachments.isNotEmpty()) {
                         persistConversationMutation("upsert user message") {
                             repository.upsertUserMessage(
                                 conversationId = normalizedConversationId,
                                 conversationMode = resolvedConversationMode,
                                 entryId = "$taskId-user",
-                                text = userMessage,
+                                text = effectiveUserMessage,
                                 attachments = attachments,
                                 createdAt = userMessageCreatedAt ?: System.currentTimeMillis()
                             )
@@ -4476,7 +4484,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
                 // 4. 执行任务
                 executor.processUserMessage(
-                    userMessage,
+                    effectiveUserMessage,
                     legacyConversationHistory,
                     runtimeContextRepository,
                     currentPackageName,

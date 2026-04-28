@@ -519,7 +519,9 @@ object AgentToolDefinitions {
             "Wait for the tool result after dispatching, then summarize it for the user.",
         "需要并行执行的子任务列表。" to "List of subtasks to execute in parallel.",
         "并发度，默认 2，范围 1-6。" to "Concurrency level. Default 2, range 1-6.",
-        "结果聚合要求，可选。" to "Optional instructions for result aggregation."
+        "结果聚合要求，可选。" to "Optional instructions for result aggregation.",
+        "subagent 被触发时要立即执行的任务说明。不要把“每天/几点/定时/提醒/闹钟/创建任务”等调度话术写进去，而要写成到点后此刻真正要完成的动作。" to
+            "The task instructions that the subagent should execute immediately when triggered. Do not include scheduling phrases such as daily, at a specific time, scheduled, remind me, alarm, or create a task. Describe the real action that should be carried out at execution time."
     )
 
     val contextAppsQueryTool: JsonObject = buildJsonObject {
@@ -1487,7 +1489,13 @@ object AgentToolDefinitions {
                     putJsonObject("goal") { put("type", "string") }
                     putJsonObject("packageName") { put("type", "string") }
                     putJsonObject("subagentConversationId") { put("type", "string") }
-                    putJsonObject("subagentPrompt") { put("type", "string") }
+                    putJsonObject("subagentPrompt") {
+                        put("type", "string")
+                        put(
+                            "description",
+                            "subagent 被触发时要立即执行的任务说明。不要把“每天/几点/定时/提醒/闹钟/创建任务”等调度话术写进去，而要写成到点后此刻真正要完成的动作。"
+                        )
+                    }
                     putJsonObject("notificationEnabled") { put("type", "boolean") }
                     putJsonObject("scheduleType") {
                         put("type", "string")
@@ -1551,7 +1559,13 @@ object AgentToolDefinitions {
                     putJsonObject("repeatDaily") { put("type", "boolean") }
                     putJsonObject("enabled") { put("type", "boolean") }
                     putJsonObject("subagentConversationId") { put("type", "string") }
-                    putJsonObject("subagentPrompt") { put("type", "string") }
+                    putJsonObject("subagentPrompt") {
+                        put("type", "string")
+                        put(
+                            "description",
+                            "subagent 被触发时要立即执行的任务说明。不要把“每天/几点/定时/提醒/闹钟/创建任务”等调度话术写进去，而要写成到点后此刻真正要完成的动作。"
+                        )
+                    }
                     putJsonObject("notificationEnabled") { put("type", "boolean") }
                 }
                 putJsonArray("required") {
