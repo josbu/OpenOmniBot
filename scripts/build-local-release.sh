@@ -39,6 +39,28 @@ Optional environment variables:
 EOF
 }
 
+print_sha256() {
+  local file_path="$1"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file_path"
+    return
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file_path"
+    return
+  fi
+
+  if command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$file_path"
+    return
+  fi
+
+  echo "Missing checksum tool. Install sha256sum, shasum, or openssl." >&2
+  exit 1
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --install)
@@ -174,7 +196,7 @@ if [[ "$TASK" == "assembleProductionRelease" ]]; then
     exit 1
   fi
   echo "APK ready: $APK_PATH"
-  shasum -a 256 "$APK_PATH"
+  print_sha256 "$APK_PATH"
 
   if [[ "$INSTALL_APK" -eq 1 ]]; then
     echo "Installing APK via adb..."
@@ -186,5 +208,5 @@ else
     exit 1
   fi
   echo "AAB ready: $AAB_PATH"
-  shasum -a 256 "$AAB_PATH"
+  print_sha256 "$AAB_PATH"
 fi
