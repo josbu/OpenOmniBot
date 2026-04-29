@@ -8,7 +8,8 @@ class _WeeklyTokenData {
   final DateTime weekStart;
   int localTokens = 0;
   int cloudTokens = 0;
-  int get totalTokens => localTokens + cloudTokens;
+  int cachedTokens = 0;
+  int get totalTokens => localTokens + cloudTokens + cachedTokens;
 
   _WeeklyTokenData({required this.weekStart});
 }
@@ -29,6 +30,7 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
   bool _isLoading = true;
   int _totalLocal = 0;
   int _totalCloud = 0;
+  int _totalCached = 0;
 
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
@@ -73,7 +75,8 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
       for (final r in records) {
         debugPrint('[TokenConsumptionCard]   record id=${r.id}, model=${r.model}, isLocal=${r.isLocal}, '
             'prompt=${r.promptTokens}, completion=${r.completionTokens}, '
-            'reasoning=${r.reasoningTokens}, text=${r.textTokens}, totalTokens=${r.totalTokens}, '
+            'reasoning=${r.reasoningTokens}, text=${r.textTokens}, cached=${r.cachedTokens}, '
+            'totalTokens=${r.totalTokens}, '
             'createdAt=${DateTime.fromMillisecondsSinceEpoch(r.createdAt).toIso8601String()}');
       }
 
@@ -89,6 +92,7 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
 
       int totalLocal = 0;
       int totalCloud = 0;
+      int totalCached = 0;
 
       for (final record in records) {
         final recordDate = DateTime.fromMillisecondsSinceEpoch(record.createdAt);
@@ -98,23 +102,31 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
         if (weekIndex >= totalWeeks) continue;
 
         final tokens = record.totalTokens;
+        final cached = record.cachedTokens.clamp(0, tokens);
+        final nonCached = tokens - cached;
+
+        weeklyData[weekIndex].cachedTokens += cached;
+        totalCached += cached;
+
         if (record.isLocal) {
-          weeklyData[weekIndex].localTokens += tokens;
-          totalLocal += tokens;
+          weeklyData[weekIndex].localTokens += nonCached;
+          totalLocal += nonCached;
         } else {
-          weeklyData[weekIndex].cloudTokens += tokens;
-          totalCloud += tokens;
+          weeklyData[weekIndex].cloudTokens += nonCached;
+          totalCloud += nonCached;
         }
       }
 
       debugPrint('[TokenConsumptionCard] aggregated: totalLocal=$totalLocal, totalCloud=$totalCloud, '
-          'total=${totalLocal + totalCloud}, weeks with data=${weeklyData.where((w) => w.totalTokens > 0).length}');
+          'totalCached=$totalCached, total=${totalLocal + totalCloud + totalCached}, '
+          'weeks with data=${weeklyData.where((w) => w.totalTokens > 0).length}');
 
       if (mounted) {
         setState(() {
           _weeklyData = weeklyData;
           _totalLocal = totalLocal;
           _totalCloud = totalCloud;
+          _totalCached = totalCached;
           _isLoading = false;
         });
         _fadeController.forward();
@@ -128,7 +140,7 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
     }
   }
 
-  int get _total => _totalLocal + _totalCloud;
+  int get _total => _totalLocal + _totalCloud + _totalCached;
 
   String _formatTokenCount(int count) {
     if (count >= 1000000) {
@@ -162,6 +174,15 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
 
   Color _cloudPillText(bool isDark) =>
       isDark ? const Color(0xFF3B9FE8) : const Color(0xFF2C7FEB);
+
+  Color _cachedColor(bool isDark) =>
+      isDark ? const Color(0xFFB8860B) : const Color(0xFFD4A017);
+
+  Color _cachedPillBg(bool isDark) =>
+      isDark ? const Color(0xFF3A3018) : const Color(0xFFFFF3DC);
+
+  Color _cachedPillText(bool isDark) =>
+      isDark ? const Color(0xFFE8C547) : const Color(0xFFB8860B);
 
   @override
   Widget build(BuildContext context) {
@@ -313,6 +334,16 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
             textColor: _cloudPillText(isDark),
             dotColor: _cloudColor(isDark),
           ),
+        if ((_totalLocal > 0 || _totalCloud > 0) && _totalCached > 0)
+          const SizedBox(width: 6),
+        // Cached proportion pill
+        if (_totalCached > 0)
+          _buildPropPill(
+            label: '缓存 ${_percentOf(_totalCached, _total)}%',
+            bgColor: _cachedPillBg(isDark),
+            textColor: _cachedPillText(isDark),
+            dotColor: _cachedColor(isDark),
+          ),
       ],
     );
   }
@@ -383,7 +414,14 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
               final localHeight = week.totalTokens > 0
                   ? totalHeight * (week.localTokens / week.totalTokens)
                   : 0.0;
-              final cloudHeight = totalHeight - localHeight;
+              final cloudHeight = week.totalTokens > 0
+                  ? totalHeight * (week.cloudTokens / week.totalTokens)
+                  : 0.0;
+              final cachedHeight = totalHeight - localHeight - cloudHeight;
+
+              // Determine which segments are visible for border radius logic
+              final hasAboveLocal = cloudHeight > 0 || cachedHeight > 0;
+              final hasAboveCloud = cachedHeight > 0;
 
               return Padding(
                 padding: EdgeInsets.only(
@@ -391,7 +429,7 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
                 ),
                 child: Tooltip(
                   message: week.totalTokens > 0
-                      ? '本地 ${_formatTokenCount(week.localTokens)} · 云端 ${_formatTokenCount(week.cloudTokens)}'
+                      ? '本地 ${_formatTokenCount(week.localTokens)} · 云端 ${_formatTokenCount(week.cloudTokens)} · 缓存 ${_formatTokenCount(week.cachedTokens)}'
                       : '无消耗',
                   preferBelow: false,
                   verticalOffset: 12,
@@ -411,6 +449,26 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
+                        // Cached segment (top)
+                        if (cachedHeight > 0)
+                          Container(
+                            width: clampedWidth,
+                            height: cachedHeight.clamp(0, barAreaHeight),
+                            decoration: BoxDecoration(
+                              color: _cachedColor(isDark),
+                              borderRadius: BorderRadius.only(
+                                topLeft: const Radius.circular(2),
+                                topRight: const Radius.circular(2),
+                                bottomLeft: (cloudHeight > 0 || localHeight > 0)
+                                    ? Radius.zero
+                                    : const Radius.circular(0),
+                                bottomRight: (cloudHeight > 0 || localHeight > 0)
+                                    ? Radius.zero
+                                    : const Radius.circular(0),
+                              ),
+                            ),
+                          ),
+                        // Cloud segment (middle)
                         if (cloudHeight > 0)
                           Container(
                             width: clampedWidth,
@@ -418,8 +476,12 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
                             decoration: BoxDecoration(
                               color: _cloudColor(isDark),
                               borderRadius: BorderRadius.only(
-                                topLeft: const Radius.circular(2),
-                                topRight: const Radius.circular(2),
+                                topLeft: hasAboveCloud
+                                    ? Radius.zero
+                                    : const Radius.circular(2),
+                                topRight: hasAboveCloud
+                                    ? Radius.zero
+                                    : const Radius.circular(2),
                                 bottomLeft: localHeight > 0
                                     ? Radius.zero
                                     : const Radius.circular(0),
@@ -429,6 +491,7 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
                               ),
                             ),
                           ),
+                        // Local segment (bottom)
                         if (localHeight > 0)
                           Container(
                             width: clampedWidth,
@@ -436,10 +499,10 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
                             decoration: BoxDecoration(
                               color: _localColor(isDark),
                               borderRadius: BorderRadius.only(
-                                topLeft: cloudHeight > 0
+                                topLeft: hasAboveLocal
                                     ? Radius.zero
                                     : const Radius.circular(2),
-                                topRight: cloudHeight > 0
+                                topRight: hasAboveLocal
                                     ? Radius.zero
                                     : const Radius.circular(2),
                               ),
@@ -495,6 +558,20 @@ class _TokenConsumptionCardState extends State<TokenConsumptionCard>
         const SizedBox(width: 4),
         Text(
           '云端',
+          style: TextStyle(fontSize: 9, color: palette.textTertiary),
+        ),
+        const SizedBox(width: 12),
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: _cachedColor(isDark),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          '缓存',
           style: TextStyle(fontSize: 9, color: palette.textTertiary),
         ),
       ],
