@@ -614,6 +614,66 @@ void main() {
     expect(find.text('运行 git status'), findsNothing);
   });
 
+  testWidgets(
+    'expanding latest agent run keeps the summary row anchored while inset grows',
+    (tester) async {
+      final controller = ScrollController();
+      final messages = _buildCompletedAgentRunMessages();
+      Set<String> expandedTaskIds = <String>{};
+      late StateSetter setState;
+
+      await tester.pumpWidget(
+        _buildLocalizedApp(
+          child: StatefulBuilder(
+            builder: (context, stateSetter) {
+              setState = stateSetter;
+              return SizedBox(
+                width: 400,
+                height: 220,
+                child: ChatMessageList(
+                  messages: messages,
+                  scrollController: controller,
+                  expandedAgentRunTaskIds: expandedTaskIds,
+                  onExpandedAgentRunTaskIdsChanged: (nextTaskIds) {
+                    setState(() {
+                      expandedTaskIds = nextTaskIds;
+                    });
+                  },
+                  bottomOverlayInset: expandedTaskIds.isEmpty ? 0 : 96,
+                  onBeforeTaskExecute: () async {},
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        controller.offset,
+        closeTo(controller.position.maxScrollExtent, 1),
+      );
+
+      final summaryToggle = find.byKey(
+        const ValueKey('agent-run-summary-task-1'),
+      );
+      final initialTop = tester.getTopLeft(summaryToggle).dy;
+      final initialOffset = controller.offset;
+
+      await tester.tap(summaryToggle);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+
+      final midAnimationTop = tester.getTopLeft(summaryToggle).dy;
+      expect(midAnimationTop, closeTo(initialTop, 4));
+      expect(controller.offset, closeTo(initialOffset, 4));
+      expect(
+        controller.offset,
+        lessThan(controller.position.maxScrollExtent - 24),
+      );
+    },
+  );
+
   testWidgets('active agent run remains expanded while task is in flight', (
     tester,
   ) async {

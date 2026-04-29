@@ -1188,6 +1188,9 @@ class ChatMessageList extends StatefulWidget {
 }
 
 class _ChatMessageListState extends State<ChatMessageList> {
+  static const Duration _kAgentRunToggleAutoStickSuppression = Duration(
+    milliseconds: 420,
+  );
   bool _stickToBottomScheduled = false;
   bool _autoStickToLatest = true;
   bool _outerScrollWasUserDriven = false;
@@ -1197,9 +1200,22 @@ class _ChatMessageListState extends State<ChatMessageList> {
   static const double _manualLatestAttachTolerance = 2.0;
   static const double _historyLoadTriggerExtent = 180.0;
   ObservableChatMessageList? _observableMessages;
+  DateTime? _autoStickSuppressedUntil;
 
   Set<String> get _expandedAgentRunTaskIds =>
       widget.expandedAgentRunTaskIds ?? _localExpandedAgentRunTaskIds;
+
+  bool get _isAutoStickTemporarilySuppressed {
+    final suppressedUntil = _autoStickSuppressedUntil;
+    if (suppressedUntil == null) {
+      return false;
+    }
+    if (DateTime.now().isBefore(suppressedUntil)) {
+      return true;
+    }
+    _autoStickSuppressedUntil = null;
+    return false;
+  }
 
   @override
   void initState() {
@@ -1215,9 +1231,17 @@ class _ChatMessageListState extends State<ChatMessageList> {
     if (oldWidget.scrollController != widget.scrollController) {
       _autoStickToLatest = true;
       _outerScrollWasUserDriven = false;
+      _autoStickSuppressedUntil = null;
     }
-    if (_autoStickToLatest ||
-        _isNearLatest(null, _manualLatestAttachTolerance)) {
+    if (_autoStickToLatest) {
+      _autoStickToLatest = true;
+      _scheduleStickToLatest();
+      return;
+    }
+    if (_isAutoStickTemporarilySuppressed) {
+      return;
+    }
+    if (_isNearLatest(null, _manualLatestAttachTolerance)) {
       _autoStickToLatest = true;
       _scheduleStickToLatest();
     }
@@ -1267,7 +1291,7 @@ class _ChatMessageListState extends State<ChatMessageList> {
   void _scheduleStickToBottom() => _scheduleStickToLatest();
 
   void _scheduleStickToLatest() {
-    if (!_autoStickToLatest) {
+    if (!_autoStickToLatest || _isAutoStickTemporarilySuppressed) {
       return;
     }
     if (_stickToBottomScheduled) {
@@ -1303,7 +1327,7 @@ class _ChatMessageListState extends State<ChatMessageList> {
   }
 
   void _handleStreamingTextLayoutChanged() {
-    if (_autoStickToLatest) {
+    if (_autoStickToLatest && !_isAutoStickTemporarilySuppressed) {
       _scheduleStickToLatest();
     }
   }
@@ -1324,7 +1348,7 @@ class _ChatMessageListState extends State<ChatMessageList> {
     if (!mounted) {
       return;
     }
-    if (_autoStickToLatest) {
+    if (_autoStickToLatest && !_isAutoStickTemporarilySuppressed) {
       _scheduleStickToLatest();
     }
     setState(() {});
@@ -1335,11 +1359,20 @@ class _ChatMessageListState extends State<ChatMessageList> {
     _outerScrollWasUserDriven = false;
   }
 
+  void _suspendAutoStickForAgentRunToggle() {
+    _autoStickToLatest = false;
+    _outerScrollWasUserDriven = false;
+    _autoStickSuppressedUntil = DateTime.now().add(
+      _kAgentRunToggleAutoStickSuppression,
+    );
+  }
+
   void _toggleAgentRunGroup(String taskId) {
     final normalizedTaskId = taskId.trim();
     if (normalizedTaskId.isEmpty) {
       return;
     }
+    _suspendAutoStickForAgentRunToggle();
     final nextExpandedTaskIds = Set<String>.from(_expandedAgentRunTaskIds);
     if (nextExpandedTaskIds.contains(normalizedTaskId)) {
       nextExpandedTaskIds.remove(normalizedTaskId);
@@ -1355,9 +1388,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
           ..addAll(nextExpandedTaskIds);
       });
       widget.onExpandedAgentRunTaskIdsChanged?.call(nextExpandedTaskIds);
-    }
-    if (_autoStickToLatest) {
-      _scheduleStickToLatest();
     }
   }
 
