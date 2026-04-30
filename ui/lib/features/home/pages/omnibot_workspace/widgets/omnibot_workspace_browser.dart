@@ -97,6 +97,17 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
     '.mkv',
     '.webm',
   };
+  static const String _bulkSelectIconSvg = '''
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect width="18" height="18" x="3" y="3" rx="2"/>
+</svg>
+''';
+  static const String _bulkSelectCheckedIconSvg = '''
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect width="18" height="18" x="3" y="3" rx="2"/>
+  <path d="m9 12 2 2 4-4"/>
+</svg>
+''';
 
   late final Directory _rootDirectory;
   late Directory _directory;
@@ -104,10 +115,15 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
   final Set<String> _expandedDirectoryPaths = <String>{};
   final Map<String, List<FileSystemEntity>> _directoryChildrenCache =
       <String, List<FileSystemEntity>>{};
+  final Set<String> _selectedEntryPaths = <String>{};
+  final Set<String> _excludedEntryPaths = <String>{};
   String? _dragHoverTargetPath;
   OmnibotResourceMetadata? _selectedFileMetadata;
   final GlobalKey<_WorkspaceInlineFilePreviewState> _inlinePreviewKey =
       GlobalKey<_WorkspaceInlineFilePreviewState>();
+  bool _isBulkSelectionMode = false;
+
+  bool get _isEnglish => Localizations.localeOf(context).languageCode == 'en';
 
   Color _surfaceColor({double opacity = 0.8}) {
     return backgroundSurfaceColor(
@@ -171,6 +187,18 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
             previewKind: selectedFileMetadata.previewKind,
             mimeType: selectedFileMetadata.mimeType,
           );
+    final nextSelectedEntryPaths = _selectedEntryPaths.where((path) {
+      final normalized = _normalizePath(path);
+      return _isDescendantOfCurrentDirectory(normalized) &&
+          FileSystemEntity.typeSync(normalized) !=
+              FileSystemEntityType.notFound;
+    }).toSet();
+    final nextExcludedEntryPaths = _excludedEntryPaths.where((path) {
+      final normalized = _normalizePath(path);
+      return _isDescendantOfCurrentDirectory(normalized) &&
+          FileSystemEntity.typeSync(normalized) !=
+              FileSystemEntityType.notFound;
+    }).toSet();
 
     setState(() {
       _entries = nextEntries;
@@ -180,6 +208,12 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
       _directoryChildrenCache
         ..clear()
         ..addAll(nextChildrenCache);
+      _selectedEntryPaths
+        ..clear()
+        ..addAll(nextSelectedEntryPaths);
+      _excludedEntryPaths
+        ..clear()
+        ..addAll(nextExcludedEntryPaths);
       _selectedFileMetadata = nextSelectedFileMetadata?.exists == true
           ? nextSelectedFileMetadata
           : null;
@@ -193,7 +227,9 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
       widget.inlineFilePreview && _selectedFileMetadata != null;
 
   bool get canGoUp =>
-      _isPreviewingFile || _directory.path != _rootDirectory.path;
+      _isPreviewingFile ||
+      _isBulkSelectionMode ||
+      _directory.path != _rootDirectory.path;
 
   void openParentDirectory() {
     unawaited(_handleOpenParentDirectory());
@@ -204,7 +240,10 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
       _directory = directory;
       _expandedDirectoryPaths.clear();
       _directoryChildrenCache.clear();
+      _selectedEntryPaths.clear();
+      _excludedEntryPaths.clear();
       _selectedFileMetadata = null;
+      _isBulkSelectionMode = false;
     });
     _notifyCanGoUpChanged();
     _refresh();
@@ -226,11 +265,14 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
         OmnibotResourceService.shellPathForAndroidPath(entry.path) ??
         (currentShellPath == null ? null : '$currentShellPath/$name');
     setState(() {
+      _selectedEntryPaths.clear();
+      _excludedEntryPaths.clear();
       _selectedFileMetadata = OmnibotResourceService.describePath(
         entry.path,
         title: name,
         shellPath: shellPath,
       );
+      _isBulkSelectionMode = false;
     });
     _notifyCanGoUpChanged();
   }
@@ -253,12 +295,24 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
       _notifyCanGoUpChanged();
       return;
     }
+    if (_isBulkSelectionMode) {
+      setState(() {
+        _isBulkSelectionMode = false;
+        _selectedEntryPaths.clear();
+        _excludedEntryPaths.clear();
+      });
+      _notifyCanGoUpChanged();
+      return;
+    }
     if (!canGoUp) return;
     setState(() {
       _directory = _directory.parent;
       _expandedDirectoryPaths.clear();
       _directoryChildrenCache.clear();
+      _selectedEntryPaths.clear();
+      _excludedEntryPaths.clear();
       _selectedFileMetadata = null;
+      _isBulkSelectionMode = false;
     });
     _notifyCanGoUpChanged();
     _refresh();
@@ -331,6 +385,168 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
     return segments;
   }
 
+  void _toggleBulkSelectionMode() {
+    setState(() {
+      _isBulkSelectionMode = !_isBulkSelectionMode;
+      _selectedEntryPaths.clear();
+      _excludedEntryPaths.clear();
+    });
+  }
+
+  bool _isPathSelfOrDescendantOf(String path, String ancestorPath) {
+    final normalizedPath = _normalizePath(path);
+    final normalizedAncestorPath = _normalizePath(ancestorPath);
+    return normalizedPath == normalizedAncestorPath ||
+        normalizedPath.startsWith('$normalizedAncestorPath/');
+  }
+
+  Iterable<String> _selectionTrailForPath(
+    String path, {
+    bool includeSelf = true,
+  }) sync* {
+    final normalizedPath = _normalizePath(path);
+    final scopeRoot = _normalizePath(_directory.path);
+    if (!_isPathSelfOrDescendantOf(normalizedPath, scopeRoot)) {
+      return;
+    }
+
+    final segments = <String>[];
+    var cursor = normalizedPath;
+    while (true) {
+      segments.add(cursor);
+      if (cursor == scopeRoot) {
+        break;
+      }
+      final parentPath = _normalizePath(File(cursor).parent.path);
+      if (!_isPathSelfOrDescendantOf(parentPath, scopeRoot)) {
+        break;
+      }
+      cursor = parentPath;
+    }
+
+    for (var index = segments.length - 1; index >= 0; index--) {
+      final candidate = segments[index];
+      if (!includeSelf && candidate == normalizedPath) {
+        continue;
+      }
+      yield candidate;
+    }
+  }
+
+  bool _isPathEffectivelySelected(String path) {
+    var selected = false;
+    for (final candidate in _selectionTrailForPath(path)) {
+      if (_selectedEntryPaths.contains(candidate)) {
+        selected = true;
+      }
+      if (_excludedEntryPaths.contains(candidate)) {
+        selected = false;
+      }
+    }
+    return selected;
+  }
+
+  bool _isPathSelectedByAncestor(String path) {
+    var selected = false;
+    for (final candidate in _selectionTrailForPath(path, includeSelf: false)) {
+      if (_selectedEntryPaths.contains(candidate)) {
+        selected = true;
+      }
+      if (_excludedEntryPaths.contains(candidate)) {
+        selected = false;
+      }
+    }
+    return selected;
+  }
+
+  bool _hasSelectionDirectiveDescendant(Set<String> directives, String path) {
+    final normalizedPath = _normalizePath(path);
+    return directives.any((candidate) {
+      final normalizedCandidate = _normalizePath(candidate);
+      return normalizedCandidate != normalizedPath &&
+          _isPathSelfOrDescendantOf(normalizedCandidate, normalizedPath);
+    });
+  }
+
+  void _clearSelectionDirectivesWithin(String path) {
+    final normalizedPath = _normalizePath(path);
+    _selectedEntryPaths.removeWhere(
+      (candidate) => _isPathSelfOrDescendantOf(candidate, normalizedPath),
+    );
+    _excludedEntryPaths.removeWhere(
+      (candidate) => _isPathSelfOrDescendantOf(candidate, normalizedPath),
+    );
+  }
+
+  bool _isEntrySelected(FileSystemEntity entry) {
+    final path = _normalizePath(entry.path);
+    if (!_isPathEffectivelySelected(path)) {
+      return false;
+    }
+    if (!_isDirectoryLikeEntry(entry) ||
+        !_expandedDirectoryPaths.contains(path)) {
+      return true;
+    }
+
+    final children =
+        _directoryChildrenCache[path] ??
+        (Directory(path).existsSync()
+            ? _sortedEntriesFor(Directory(path))
+            : const <FileSystemEntity>[]);
+    for (final child in children) {
+      if (!_isEntrySelected(child)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void _selectEntry(FileSystemEntity entry) {
+    final path = _normalizePath(entry.path);
+    if (!_isInsideWorkspace(path)) return;
+    setState(() {
+      _clearSelectionDirectivesWithin(path);
+      _selectedEntryPaths.add(path);
+    });
+  }
+
+  void _deselectEntry(FileSystemEntity entry) {
+    final path = _normalizePath(entry.path);
+    if (!_isInsideWorkspace(path)) return;
+    final selectedByAncestor = _isPathSelectedByAncestor(path);
+    setState(() {
+      _clearSelectionDirectivesWithin(path);
+      if (selectedByAncestor) {
+        _excludedEntryPaths.add(path);
+      }
+    });
+  }
+
+  void _toggleEntrySelection(FileSystemEntity entry) {
+    if (_isEntrySelected(entry)) {
+      _deselectEntry(entry);
+      return;
+    }
+    _selectEntry(entry);
+  }
+
+  List<String> _topLevelSelectedPathsForDelete() {
+    final targets = _selectedEntryPaths.toList(growable: false)
+      ..sort((a, b) => a.length.compareTo(b.length));
+    final collapsed = <String>[];
+    for (final rawPath in targets) {
+      final path = _normalizePath(rawPath);
+      final alreadyCovered = collapsed.any(
+        (selected) => path == selected || path.startsWith('$selected/'),
+      );
+      if (alreadyCovered) {
+        continue;
+      }
+      collapsed.add(path);
+    }
+    return collapsed;
+  }
+
   Widget _buildBreadcrumbHeader() {
     final palette = context.omniPalette;
     final breadcrumbs = _workspaceBreadcrumbs;
@@ -352,34 +568,129 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
             ),
             const SizedBox(height: 6),
           ],
-          if (breadcrumbs.isEmpty)
-            Text(
-              Localizations.localeOf(context).languageCode == 'en'
-                  ? 'Loading workspace...'
-                  : '加载工作区中...',
-              style: TextStyle(fontSize: 12, color: palette.textSecondary),
-            )
-          else
-            Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 2,
-              runSpacing: 4,
-              children: [
-                for (var index = 0; index < breadcrumbs.length; index++) ...[
-                  if (index > 0)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 2),
-                      child: Icon(
-                        Icons.chevron_right_rounded,
-                        size: 16,
-                        color: Color(0xFF98A2B3),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const SizedBox(width: 10),
+              _buildBulkSelectionToggleButton(),
+              const SizedBox(width: 4),
+              Expanded(
+                child: breadcrumbs.isEmpty
+                    ? Text(
+                        _isEnglish ? 'Loading workspace...' : '加载工作区中...',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: palette.textSecondary,
+                        ),
+                      )
+                    : Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 2,
+                        runSpacing: 4,
+                        children: [
+                          for (
+                            var index = 0;
+                            index < breadcrumbs.length;
+                            index++
+                          ) ...[
+                            if (index > 0)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 2),
+                                child: Icon(
+                                  Icons.chevron_right_rounded,
+                                  size: 16,
+                                  color: Color(0xFF98A2B3),
+                                ),
+                              ),
+                            _buildWorkspaceBreadcrumbChip(breadcrumbs[index]),
+                          ],
+                        ],
                       ),
-                    ),
-                  _buildWorkspaceBreadcrumbChip(breadcrumbs[index]),
-                ],
+              ),
+              if (_selectedEntryPaths.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 160),
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  child: _buildDeleteSelectedButton(),
+                ),
               ],
-            ),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBulkSelectionToggleButton() {
+    final palette = context.omniPalette;
+    final isActive = _isBulkSelectionMode;
+    return Tooltip(
+      message: _isEnglish
+          ? (isActive ? 'Exit multi-select' : 'Multi-select')
+          : (isActive ? '退出批量选择' : '批量选择'),
+      child: Material(
+        color: Colors.transparent,
+        child: InkResponse(
+          radius: 18,
+          highlightShape: BoxShape.circle,
+          onTap: _toggleBulkSelectionMode,
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: Center(
+              child: SvgPicture.string(
+                isActive ? _bulkSelectCheckedIconSvg : _bulkSelectIconSvg,
+                width: 20,
+                height: 20,
+                colorFilter: ColorFilter.mode(
+                  isActive ? const Color(0xFF2563EB) : palette.textSecondary,
+                  BlendMode.srcIn,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeleteSelectedButton() {
+    final count = _selectedEntryPaths.length;
+    final label = _isEnglish ? 'Delete ($count)' : '删除 $count 项';
+    return TextButton(
+      key: ValueKey<String>('workspace-delete-selected-$count'),
+      onPressed: () => unawaited(_confirmAndDeleteSelectedEntries()),
+      style: TextButton.styleFrom(
+        foregroundColor: const Color(0xFFE53935),
+        backgroundColor: const Color(0x14E53935),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        shape: const StadiumBorder(),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          fontFamily: 'PingFang SC',
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectionLeadingIcon({required bool isSelected}) {
+    return SvgPicture.string(
+      isSelected ? _bulkSelectCheckedIconSvg : _bulkSelectIconSvg,
+      width: 20,
+      height: 20,
+      colorFilter: ColorFilter.mode(
+        isSelected
+            ? const Color(0xFF2563EB)
+            : context.omniPalette.textSecondary,
+        BlendMode.srcIn,
       ),
     );
   }
@@ -599,6 +910,8 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
     final mountEntry = _workspaceMountEntryFor(entry);
     final isWorkspaceMountEntry = mountEntry != null;
     final isDirectory = _isDirectoryLikeEntry(entry);
+    final selectionMode = _isBulkSelectionMode;
+    final isSelected = _isEntrySelected(entry);
     final canExpandInline =
         widget.enableInlineDirectoryExpansion &&
         isDirectory &&
@@ -625,7 +938,9 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
           )
         : borderRadius;
 
-    final trailing = isDirectory
+    final trailing = selectionMode
+        ? null
+        : isDirectory
         ? Icon(
             canExpandInline
                 ? (isExpanded
@@ -639,14 +954,20 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
 
     Widget row = _buildWorkspaceItem(
       title: name,
-      leading: _buildDraggableLeadingIcon(
-        entry: entry,
-        isExpanded: isExpanded,
-        draggable: !isWorkspaceMountEntry,
-      ),
+      leading: selectionMode
+          ? _buildSelectionLeadingIcon(isSelected: isSelected)
+          : _buildDraggableLeadingIcon(
+              entry: entry,
+              isExpanded: isExpanded,
+              draggable: !isWorkspaceMountEntry,
+            ),
       borderRadius: itemBorderRadius,
       trailing: trailing,
       onTap: () {
+        if (selectionMode) {
+          _toggleEntrySelection(entry);
+          return;
+        }
         if (isDirectory) {
           final directory = Directory(entry.path);
           if (canExpandInline) {
@@ -662,10 +983,10 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
         }
         _openFileEntry(entry, currentShellPath: currentShellPath);
       },
-      onLongPress: () => _showEntryActionSheet(entry),
+      onLongPress: selectionMode ? null : () => _showEntryActionSheet(entry),
     );
 
-    if (isDirectory) {
+    if (isDirectory && !selectionMode) {
       row = _buildDirectoryDropTarget(
         child: row,
         borderRadius: itemBorderRadius,
@@ -693,7 +1014,7 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
   Widget _buildDraggableLeadingIcon({
     required FileSystemEntity entry,
     required bool isExpanded,
-    bool draggable = true,
+    required bool draggable,
   }) {
     Widget buildIcon({double size = 20}) {
       return SvgPicture.asset(
@@ -1208,6 +1529,86 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
     }
   }
 
+  Future<void> _confirmAndDeleteSelectedEntries() async {
+    final selectedPaths = _topLevelSelectedPathsForDelete();
+    if (selectedPaths.isEmpty) {
+      showToast(_isEnglish ? 'No items selected' : '还没有选中文件或文件夹');
+      return;
+    }
+
+    final previewNames = selectedPaths
+        .take(3)
+        .map(_entryNameFromPath)
+        .where((name) => name.isNotEmpty)
+        .toList(growable: false);
+    final content = selectedPaths.length == 1
+        ? (_isEnglish
+              ? 'Delete "${previewNames.first}"? This cannot be undone.'
+              : '确认删除“${previewNames.first}”？删除后不可恢复。')
+        : (_isEnglish
+              ? 'Delete ${selectedPaths.length} selected items? This cannot be undone.'
+              : '确认删除已选择的 ${selectedPaths.length} 项？删除后不可恢复。');
+
+    final confirmed = await AppDialog.confirm(
+      context,
+      title: _isEnglish ? 'Delete selected items' : '删除所选项',
+      content: content,
+      cancelText: _isEnglish ? 'Cancel' : '取消',
+      confirmText: _isEnglish ? 'Delete' : '删除',
+      confirmButtonColor: const Color(0xFFE53935),
+    );
+    if (confirmed != true) return;
+
+    var deletedCount = 0;
+    final failedPaths = <String>[];
+    for (final path in selectedPaths) {
+      final sourceType = FileSystemEntity.typeSync(path);
+      if (sourceType == FileSystemEntityType.notFound) {
+        continue;
+      }
+      try {
+        await _deleteSelectedPathRecursively(path);
+        deletedCount += 1;
+      } catch (_) {
+        failedPaths.add(path);
+      }
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _selectedEntryPaths.clear();
+      _excludedEntryPaths.clear();
+      _isBulkSelectionMode = false;
+    });
+    _refresh();
+
+    if (failedPaths.isEmpty) {
+      showToast(
+        _isEnglish
+            ? 'Deleted $deletedCount item(s)'
+            : '已删除 $deletedCount 项文件或文件夹',
+        type: ToastType.success,
+      );
+      return;
+    }
+
+    if (deletedCount > 0) {
+      showToast(
+        _isEnglish
+            ? 'Deleted $deletedCount item(s), ${failedPaths.length} failed'
+            : '已删除 $deletedCount 项，${failedPaths.length} 项删除失败',
+        type: ToastType.warning,
+      );
+      return;
+    }
+
+    showToast(
+      _isEnglish ? 'Failed to delete selected items' : '删除所选项失败',
+      type: ToastType.error,
+    );
+  }
+
   Future<void> _confirmAndUnmountWorkspaceMount(
     WorkspaceMountEntry mountEntry,
   ) async {
@@ -1226,6 +1627,74 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
       _refresh();
     } catch (error) {
       showToast('卸载失败：$error', type: ToastType.error);
+    }
+  }
+
+  Future<void> _deleteSelectedPathRecursively(String path) async {
+    final normalizedPath = _normalizePath(path);
+    final sourceType = FileSystemEntity.typeSync(normalizedPath);
+    if (sourceType == FileSystemEntityType.notFound) {
+      return;
+    }
+
+    final isSelected = _isPathEffectivelySelected(normalizedPath);
+    final hasSelectedDescendants = _hasSelectionDirectiveDescendant(
+      _selectedEntryPaths,
+      normalizedPath,
+    );
+    final hasExcludedDescendants = _hasSelectionDirectiveDescendant(
+      _excludedEntryPaths,
+      normalizedPath,
+    );
+    final mountEntry = WorkspaceMountService.describeMountEntrySync(
+      normalizedPath,
+      rootPath: _rootDirectory.path,
+    );
+
+    if (sourceType != FileSystemEntityType.directory) {
+      if (isSelected) {
+        await File(normalizedPath).delete();
+      }
+      return;
+    }
+
+    final directory = Directory(normalizedPath);
+    if (mountEntry != null) {
+      if (isSelected && !hasExcludedDescendants) {
+        WorkspaceMountService.unmountDirectorySync(mountEntry.linkPath);
+        return;
+      }
+      if (!hasSelectedDescendants) {
+        return;
+      }
+    }
+    if (isSelected && !hasExcludedDescendants) {
+      await directory.delete(recursive: true);
+      return;
+    }
+    if (!isSelected && !hasSelectedDescendants) {
+      return;
+    }
+    if (!directory.existsSync()) {
+      return;
+    }
+
+    final children = directory.listSync().toList(growable: false);
+    for (final child in children) {
+      await _deleteSelectedPathRecursively(child.path);
+    }
+
+    if (!isSelected || !directory.existsSync()) {
+      return;
+    }
+
+    if (mountEntry != null) {
+      return;
+    }
+
+    final hasRemainingEntries = directory.listSync().isNotEmpty;
+    if (!hasRemainingEntries) {
+      await directory.delete();
     }
   }
 
