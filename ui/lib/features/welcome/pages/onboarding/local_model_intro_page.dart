@@ -9,6 +9,8 @@ import 'package:ui/theme/theme_context.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 import 'package:ui/widgets/gradient_button.dart';
 
+// ---------- SVG icons ----------
+
 const String _kShieldSvg = '''
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>
@@ -40,8 +42,115 @@ const String _kAlertSvg = '''
 </svg>
 ''';
 
-class LocalModelIntroPage extends StatelessWidget {
+class LocalModelIntroPage extends StatefulWidget {
   const LocalModelIntroPage({super.key});
+
+  @override
+  State<LocalModelIntroPage> createState() => _LocalModelIntroPageState();
+}
+
+class _LocalModelIntroPageState extends State<LocalModelIntroPage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  // Hero section animations
+  late final Animation<double> _heroScale;
+  late final Animation<double> _heroOpacity;
+  late final Animation<double> _titleOffset;
+  late final Animation<double> _titleOpacity;
+
+  // Section header + feature card animations (staggered)
+  late final List<Animation<double>> _itemOffsets;
+  late final List<Animation<double>> _itemOpacities;
+
+  // Button animation
+  late final Animation<double> _buttonOpacity;
+  late final Animation<double> _buttonOffset;
+
+  // Total animated items: section1 header + 3 advantages + section2 header + 1 limitation = 6
+  static const _itemCount = 6;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 1400),
+      vsync: this,
+    );
+
+    // Hero icon: 0-400ms
+    _heroScale = Tween<double>(begin: 0.6, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.0, 0.29, curve: Curves.elasticOut),
+      ),
+    );
+    _heroOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.0, 0.14, curve: Curves.easeOut),
+      ),
+    );
+
+    // Title: 100-500ms
+    _titleOffset = Tween<double>(begin: 20.0, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.07, 0.36, curve: Curves.easeOutCubic),
+      ),
+    );
+    _titleOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.07, 0.25, curve: Curves.easeOut),
+      ),
+    );
+
+    // Staggered items: start at 250ms, each 80ms apart
+    _itemOffsets = List.generate(_itemCount, (i) {
+      final start = 0.18 + i * 0.057;
+      final end = (start + 0.36).clamp(0.0, 1.0);
+      return Tween<double>(begin: 28.0, end: 0.0).animate(
+        CurvedAnimation(
+          parent: _controller,
+          curve: Interval(start, end, curve: Curves.easeOutCubic),
+        ),
+      );
+    });
+    _itemOpacities = List.generate(_itemCount, (i) {
+      final start = 0.18 + i * 0.057;
+      final end = (start + 0.21).clamp(0.0, 1.0);
+      return Tween<double>(begin: 0.0, end: 1.0).animate(
+        CurvedAnimation(
+          parent: _controller,
+          curve: Interval(start, end, curve: Curves.easeOut),
+        ),
+      );
+    });
+
+    // Button: last in the sequence
+    _buttonOffset = Tween<double>(begin: 20.0, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.72, 1.0, curve: Curves.easeOutCubic),
+      ),
+    );
+    _buttonOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.72, 0.9, curve: Curves.easeOut),
+      ),
+    );
+
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -56,158 +165,250 @@ class LocalModelIntroPage extends StatelessWidget {
         primary: true,
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Hero section
-                    Center(
-                      child: Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          color: palette.accentPrimary.withOpacity(0.1),
-                          shape: BoxShape.circle,
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) => Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 16,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Hero icon — scale + fade
+                      Center(
+                        child: Opacity(
+                          opacity: _heroOpacity.value,
+                          child: Transform.scale(
+                            scale: _heroScale.value,
+                            child: Container(
+                              width: 72,
+                              height: 72,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    const Color(0xFF7C4DFF),
+                                    const Color(0xFFB388FF),
+                                  ],
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.memory_rounded,
+                                size: 36,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
                         ),
-                        child: Icon(
-                          Icons.memory,
-                          size: 40,
-                          color: palette.accentPrimary,
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Title — slide + fade
+                      Center(
+                        child: Transform.translate(
+                          offset: Offset(0, _titleOffset.value),
+                          child: Opacity(
+                            opacity: _titleOpacity.value,
+                            child: Text(
+                              context.trLegacy('在设备上运行本地 AI'),
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                                color: palette.textPrimary,
+                                height: 1.3,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 20),
-                    Center(
-                      child: Text(
-                        context.trLegacy('在设备上运行本地 AI'),
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: palette.textPrimary,
-                          height: 1.3,
+                      const SizedBox(height: 28),
+
+                      // Section: Advantages (item index 0 = header)
+                      _buildAnimatedItem(
+                        index: 0,
+                        child: _SectionHeader(
+                          text: context.trLegacy('优势'),
+                          color: isDark
+                              ? const Color(0xFF7BC67E)
+                              : const Color(0xFF4CAF50),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 32),
+                      const SizedBox(height: 12),
 
-                    // Advantages
-                    Text(
-                      context.trLegacy('优势'),
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: palette.textPrimary,
+                      _buildAnimatedItem(
+                        index: 1,
+                        child: _FeatureCard(
+                          svgIcon: _kShieldSvg,
+                          title: context.trLegacy('隐私安全'),
+                          description: context.trLegacy(
+                            '数据完全留在设备上，不会发送到任何服务器',
+                          ),
+                          gradientColors: isDark
+                              ? [const Color(0xFF66BB6A), const Color(0xFF43A047)]
+                              : [const Color(0xFF4CAF50), const Color(0xFF81C784)],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    _FeatureItem(
-                      svgIcon: _kShieldSvg,
-                      title: context.trLegacy('隐私安全'),
-                      description:
-                          context.trLegacy('数据完全留在设备上，不会发送到任何服务器'),
-                      color: isDark
-                          ? const Color(0xFF7BC67E)
-                          : const Color(0xFF4CAF50),
-                    ),
-                    const SizedBox(height: 12),
-                    _FeatureItem(
-                      svgIcon: _kWifiOffSvg,
-                      title: context.trLegacy('离线可用'),
-                      description:
-                          context.trLegacy('无需网络连接，随时随地使用 AI 助手'),
-                      color: isDark
-                          ? const Color(0xFF64B5F6)
-                          : const Color(0xFF2196F3),
-                    ),
-                    const SizedBox(height: 12),
-                    _FeatureItem(
-                      svgIcon: _kZapSvg,
-                      title: context.trLegacy('完全免费'),
-                      description:
-                          context.trLegacy('无需 API 费用或订阅，没有使用限制'),
-                      color: isDark
-                          ? const Color(0xFFFFD54F)
-                          : const Color(0xFFFFC107),
-                    ),
+                      const SizedBox(height: 10),
 
-                    const SizedBox(height: 28),
-
-                    // Limitations
-                    Text(
-                      context.trLegacy('局限性'),
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: palette.textPrimary,
+                      _buildAnimatedItem(
+                        index: 2,
+                        child: _FeatureCard(
+                          svgIcon: _kWifiOffSvg,
+                          title: context.trLegacy('离线可用'),
+                          description: context.trLegacy(
+                            '无需网络连接，随时随地使用 AI 助手',
+                          ),
+                          gradientColors: isDark
+                              ? [const Color(0xFF42A5F5), const Color(0xFF1E88E5)]
+                              : [const Color(0xFF2196F3), const Color(0xFF64B5F6)],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    _FeatureItem(
-                      svgIcon: _kAlertSvg,
-                      title: context.trLegacy('性能受限'),
-                      description:
-                          context.trLegacy('端侧模型较小，能力有限，回复质量不如云端模型'),
-                      color: isDark
-                          ? const Color(0xFFE57373)
-                          : const Color(0xFFEF5350),
-                    ),
-                    const SizedBox(height: 12),
-                    _FeatureItem(
-                      svgIcon: _kAlertSvg,
-                      title: context.trLegacy('任务受限'),
-                      description: context.trLegacy(
-                          '目前无法处理复杂的 Agent 任务，适合简单对话和问答'),
-                      color: isDark
-                          ? const Color(0xFFE57373)
-                          : const Color(0xFFEF5350),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
+                      const SizedBox(height: 10),
+
+                      _buildAnimatedItem(
+                        index: 3,
+                        child: _FeatureCard(
+                          svgIcon: _kZapSvg,
+                          title: context.trLegacy('完全免费'),
+                          description: context.trLegacy(
+                            '无需 API 费用或订阅，没有使用限制',
+                          ),
+                          gradientColors: isDark
+                              ? [const Color(0xFFFFCA28), const Color(0xFFFFA000)]
+                              : [const Color(0xFFFFC107), const Color(0xFFFFD54F)],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Section: Limitations (item index 4 = header, 5 = card)
+                      _buildAnimatedItem(
+                        index: 4,
+                        child: _SectionHeader(
+                          text: context.trLegacy('局限性'),
+                          color: isDark
+                              ? const Color(0xFFE57373)
+                              : const Color(0xFFEF5350),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      _buildAnimatedItem(
+                        index: 5,
+                        child: _FeatureCard(
+                          svgIcon: _kAlertSvg,
+                          title: context.trLegacy('性能受限'),
+                          description: context.trLegacy(
+                            '端侧模型较小，能力有限，回复质量不如云端模型',
+                          ),
+                          gradientColors: isDark
+                              ? [const Color(0xFFEF5350), const Color(0xFFE53935)]
+                              : [const Color(0xFFEF5350), const Color(0xFFE57373)],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            // Bottom button
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-              child: GradientButton(
-                width: screenWidth - 48,
-                height: 48,
-                text: context.trLegacy('浏览模型市场'),
-                onTap: () async {
-                  // Complete onboarding so user won't return to guide
-                  await StorageService.setBool(
-                      StorageKeys.welcomeCompleted, true);
-                  // Navigate to home first, then push market page on top
-                  GoRouterManager.clearAndNavigateTo('/home/chat');
-                  GoRouterManager.push(
-                    '/home/local_models?tab=market&pinned=$kOnboardingRecommendedModelId',
-                  );
-                },
+
+              // Bottom button — slide up + fade
+              Transform.translate(
+                offset: Offset(0, _buttonOffset.value),
+                child: Opacity(
+                  opacity: _buttonOpacity.value,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                    child: GradientButton(
+                      width: screenWidth - 48,
+                      height: 48,
+                      text: context.trLegacy('浏览模型市场'),
+                      onTap: () async {
+                        await StorageService.setBool(
+                          StorageKeys.welcomeCompleted,
+                          true,
+                        );
+                        GoRouterManager.clearAndNavigateTo('/home/chat');
+                        GoRouterManager.push(
+                          '/home/local_models?tab=market&pinned=$kOnboardingRecommendedModelId',
+                        );
+                      },
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildAnimatedItem({required int index, required Widget child}) {
+    return Transform.translate(
+      offset: Offset(0, _itemOffsets[index].value),
+      child: Opacity(
+        opacity: _itemOpacities[index].value,
+        child: child,
       ),
     );
   }
 }
 
-class _FeatureItem extends StatelessWidget {
+// ---------- Private widgets ----------
+
+class _SectionHeader extends StatelessWidget {
+  final String text;
+  final Color color;
+
+  const _SectionHeader({required this.text, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+
+    return Row(
+      children: [
+        Container(
+          width: 3,
+          height: 16,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: palette.textPrimary,
+            letterSpacing: -0.2,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FeatureCard extends StatelessWidget {
   final String svgIcon;
   final String title;
   final String description;
-  final Color color;
+  final List<Color> gradientColors;
 
-  const _FeatureItem({
+  const _FeatureCard({
     required this.svgIcon,
     required this.title,
     required this.description,
-    required this.color,
+    required this.gradientColors,
   });
 
   @override
@@ -218,25 +419,39 @@ class _FeatureItem extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: palette.surfacePrimary,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: palette.borderSubtle),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: palette.shadowColor,
+            blurRadius: 12,
+            spreadRadius: 0,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: gradientColors,
+              ),
             ),
             child: Center(
               child: SvgPicture.string(
                 svgIcon,
                 width: 20,
                 height: 20,
-                colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+                colorFilter: const ColorFilter.mode(
+                  Colors.white,
+                  BlendMode.srcIn,
+                ),
               ),
             ),
           ),

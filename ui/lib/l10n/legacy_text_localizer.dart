@@ -92,6 +92,8 @@ class LegacyTextLocalizer {
     '终端输出更新中': 'Updating terminal output',
     '🎉Hi，我是小万，我会做很多事，让我展示给你下！':
         '🎉Hi, I\'m Omnibot. I can do many things, let me show you!',
+    'Hi，我是小万': 'Hi, I\'m Omnibot',
+    '你的 AI 助手，随时准备就绪': 'Your AI assistant, always ready',
     '换一换': 'Shuffle',
     '小万正在思考...': 'Omnibot is thinking...',
     '总结中': 'Summarizing',
