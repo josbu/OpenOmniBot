@@ -412,6 +412,8 @@ class LegacyTextLocalizer {
     'API Key（可选）': 'API Key (optional)',
     '浏览模型市场': 'Browse Model Market',
     '推荐': 'Recommended',
+    '选择方式': 'Choose Method',
+    '特性': 'Features',
   };
 
   static final List<(RegExp, _TextRewriter)>

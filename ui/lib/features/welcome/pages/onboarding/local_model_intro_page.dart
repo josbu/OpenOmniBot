@@ -7,6 +7,7 @@ import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/widgets/gradient_button.dart';
+import 'package:ui/widgets/settings_section_title.dart';
 
 // ---------- SVG icons ----------
 
@@ -58,30 +59,23 @@ class _LocalModelIntroPageState extends State<LocalModelIntroPage>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
-  // Animations
   late final Animation<double> _backOpacity;
-  late final Animation<double> _titleOffset;
-  late final Animation<double> _titleOpacity;
-  late final Animation<double> _subtitleOffset;
-  late final Animation<double> _subtitleOpacity;
-  // 3 cards staggered
-  late final List<Animation<double>> _cardOffsets;
-  late final List<Animation<double>> _cardOpacities;
-  late final Animation<double> _noteOpacity;
-  late final Animation<double> _buttonOffset;
+  late final Animation<double> _headerOffset;
+  late final Animation<double> _headerOpacity;
+  late final Animation<double> _contentOffset;
+  late final Animation<double> _contentOpacity;
   late final Animation<double> _buttonOpacity;
-
-  static const _cardCount = 3;
 
   @override
   void initState() {
     super.initState();
 
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 1300),
+      duration: const Duration(milliseconds: 900),
       vsync: this,
     );
 
+    // Back button: 0%-20%
     _backOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
@@ -89,71 +83,39 @@ class _LocalModelIntroPageState extends State<LocalModelIntroPage>
       ),
     );
 
-    _titleOffset = Tween<double>(begin: 30.0, end: 0.0).animate(
+    // Header (title + subtitle): 5%-40%
+    _headerOffset = Tween<double>(begin: 20.0, end: 0.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.08, 0.38, curve: Curves.easeOutCubic),
+        curve: const Interval(0.05, 0.4, curve: Curves.easeOutCubic),
       ),
     );
-    _titleOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+    _headerOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.08, 0.28, curve: Curves.easeOut),
-      ),
-    );
-
-    _subtitleOffset = Tween<double>(begin: 24.0, end: 0.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(0.15, 0.45, curve: Curves.easeOutCubic),
-      ),
-    );
-    _subtitleOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(0.15, 0.35, curve: Curves.easeOut),
+        curve: const Interval(0.05, 0.3, curve: Curves.easeOut),
       ),
     );
 
-    // 3 cards staggered: start at 0.28, each 0.08 apart
-    _cardOffsets = List.generate(_cardCount, (i) {
-      final start = 0.28 + i * 0.08;
-      final end = (start + 0.35).clamp(0.0, 1.0);
-      return Tween<double>(begin: 32.0, end: 0.0).animate(
-        CurvedAnimation(
-          parent: _controller,
-          curve: Interval(start, end, curve: Curves.easeOutBack),
-        ),
-      );
-    });
-    _cardOpacities = List.generate(_cardCount, (i) {
-      final start = 0.28 + i * 0.08;
-      final end = (start + 0.2).clamp(0.0, 1.0);
-      return Tween<double>(begin: 0.0, end: 1.0).animate(
-        CurvedAnimation(
-          parent: _controller,
-          curve: Interval(start, end, curve: Curves.easeOut),
-        ),
-      );
-    });
-
-    _noteOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+    // Content (section + items + note): 20%-65%
+    _contentOffset = Tween<double>(begin: 16.0, end: 0.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.6, 0.8, curve: Curves.easeOut),
+        curve: const Interval(0.2, 0.65, curve: Curves.easeOutCubic),
+      ),
+    );
+    _contentOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.2, 0.55, curve: Curves.easeOut),
       ),
     );
 
-    _buttonOffset = Tween<double>(begin: 20.0, end: 0.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(0.7, 1.0, curve: Curves.easeOutCubic),
-      ),
-    );
+    // Button: 60%-90%
     _buttonOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.7, 0.9, curve: Curves.easeOut),
+        curve: const Interval(0.6, 0.9, curve: Curves.easeOut),
       ),
     );
 
@@ -166,12 +128,16 @@ class _LocalModelIntroPageState extends State<LocalModelIntroPage>
     super.dispose();
   }
 
-  Widget _buildCard(int index, Widget child) {
-    return Transform.translate(
-      offset: Offset(0, _cardOffsets[index].value),
-      child: Opacity(
-        opacity: _cardOpacities[index].value,
-        child: child,
+  Widget _buildDivider() {
+    final palette = context.omniPalette;
+    return Padding(
+      padding: const EdgeInsets.only(left: 28),
+      child: Divider(
+        height: 1,
+        thickness: 1,
+        color: palette.borderSubtle.withValues(
+          alpha: context.isDarkTheme ? 0.5 : 0.78,
+        ),
       ),
     );
   }
@@ -191,198 +157,200 @@ class _LocalModelIntroPageState extends State<LocalModelIntroPage>
               children: [
                 // Floating back button
                 Align(
-                    alignment: Alignment.centerLeft,
-                    child: Opacity(
-                      opacity: _backOpacity.value,
-                      child: GestureDetector(
-                        onTap: () => GoRouterManager.pop(),
-                        behavior: HitTestBehavior.opaque,
-                        child: Padding(
-                          padding: const EdgeInsets.only(
-                            left: 12,
-                            top: 8,
-                            right: 24,
-                            bottom: 8,
-                          ),
-                          child: SvgPicture.string(
-                            _kBackSvg,
-                            width: 24,
-                            height: 24,
-                            colorFilter: ColorFilter.mode(
-                              palette.textPrimary,
-                              BlendMode.srcIn,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Scrollable content
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 72),
-
-                          // Title — gradient text
-                          Transform.translate(
-                            offset: Offset(0, _titleOffset.value),
-                            child: Opacity(
-                              opacity: _titleOpacity.value,
-                              child: ShaderMask(
-                                shaderCallback: (bounds) =>
-                                    const LinearGradient(
-                                  colors: [
-                                    Color(0xFF1930D9),
-                                    Color(0xFF2DA5F0),
-                                  ],
-                                ).createShader(bounds),
-                                child: Text(
-                                  context.trLegacy('在设备上运行本地 AI'),
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontSize: 26,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white,
-                                    height: 1.2,
-                                    letterSpacing: -0.5,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-
-                          // Subtitle
-                          Transform.translate(
-                            offset: Offset(0, _subtitleOffset.value),
-                            child: Opacity(
-                              opacity: _subtitleOpacity.value,
-                              child: Text(
-                                context.trLegacy('无需网络，完全免费'),
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  color: palette.textSecondary,
-                                  height: 1.5,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 32),
-
-                          // Card 1: Privacy
-                          _buildCard(
-                            0,
-                            _FeatureCard(
-                              svgIcon: _kShieldSvg,
-                              title: context.trLegacy('隐私安全'),
-                              description: context.trLegacy(
-                                '数据完全留在设备上，不会发送到任何服务器。对话内容、个人偏好等敏感信息始终由你掌控。',
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Card 2: Offline
-                          _buildCard(
-                            1,
-                            _FeatureCard(
-                              svgIcon: _kWifiOffSvg,
-                              title: context.trLegacy('离线可用'),
-                              description: context.trLegacy(
-                                '无需网络连接即可运行 AI 助手。无论在飞机上、地铁里还是偏远地区，随时随地可用。',
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Card 3: Free
-                          _buildCard(
-                            2,
-                            _FeatureCard(
-                              svgIcon: _kZapSvg,
-                              title: context.trLegacy('完全免费'),
-                              description: context.trLegacy(
-                                '无需 API 费用或订阅。模型下载后可无限次使用，没有任何隐藏费用。',
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          // Limitation note
-                          Opacity(
-                            opacity: _noteOpacity.value,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 12,
-                              ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 1),
-                                    child: SvgPicture.string(
-                                      _kInfoSvg,
-                                      width: 16,
-                                      height: 16,
-                                      colorFilter: ColorFilter.mode(
-                                        palette.textTertiary,
-                                        BlendMode.srcIn,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      context.trLegacy(
-                                        '端侧模型较小，回复质量不如云端模型，暂不支持复杂 Agent 任务，适合日常对话与问答。',
-                                      ),
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: palette.textTertiary,
-                                        height: 1.5,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // Bottom button
-                  Transform.translate(
-                    offset: Offset(0, _buttonOffset.value),
-                    child: Opacity(
-                      opacity: _buttonOpacity.value,
+                  alignment: Alignment.centerLeft,
+                  child: Opacity(
+                    opacity: _backOpacity.value,
+                    child: GestureDetector(
+                      onTap: () => GoRouterManager.pop(),
+                      behavior: HitTestBehavior.opaque,
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-                        child: GradientButton(
-                          width: screenWidth - 48,
-                          height: 48,
-                          text: context.trLegacy('浏览模型市场'),
-                          onTap: () async {
-                            await StorageService.setBool(
-                              StorageKeys.welcomeCompleted,
-                              true,
-                            );
-                            GoRouterManager.clearAndNavigateTo('/home/chat');
-                            GoRouterManager.push(
-                              '/home/local_models?tab=market&pinned=$kOnboardingRecommendedModelId',
-                            );
-                          },
+                        padding: const EdgeInsets.only(
+                          left: 12,
+                          top: 8,
+                          right: 24,
+                          bottom: 8,
+                        ),
+                        child: SvgPicture.string(
+                          _kBackSvg,
+                          width: 24,
+                          height: 24,
+                          colorFilter: ColorFilter.mode(
+                            palette.textPrimary,
+                            BlendMode.srcIn,
+                          ),
                         ),
                       ),
                     ),
                   ),
+                ),
+
+                // Scrollable content
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 48),
+
+                        // Gradient title + subtitle
+                        Transform.translate(
+                          offset: Offset(0, _headerOffset.value),
+                          child: Opacity(
+                            opacity: _headerOpacity.value,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ShaderMask(
+                                  shaderCallback: (bounds) =>
+                                      const LinearGradient(
+                                    colors: [
+                                      Color(0xFF1930D9),
+                                      Color(0xFF2DA5F0),
+                                    ],
+                                  ).createShader(bounds),
+                                  child: Text(
+                                    context.trLegacy('在设备上运行本地 AI'),
+                                    style: const TextStyle(
+                                      fontSize: 26,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                      height: 1.2,
+                                      letterSpacing: -0.5,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  context.trLegacy('无需网络，完全免费'),
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    color: palette.textSecondary,
+                                    height: 1.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+
+                        // Features section (flat, settings-style)
+                        Transform.translate(
+                          offset: Offset(0, _contentOffset.value),
+                          child: Opacity(
+                            opacity: _contentOpacity.value,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Section header
+                                SettingsSectionTitle(
+                                  label: '特性',
+                                  bottomPadding: 0,
+                                ),
+
+                                // Feature 1: Privacy
+                                _FeatureItem(
+                                  svgIcon: _kShieldSvg,
+                                  title: context.trLegacy('隐私安全'),
+                                  description: context.trLegacy(
+                                    '数据完全留在设备上，不会发送到任何服务器。对话内容、个人偏好等敏感信息始终由你掌控。',
+                                  ),
+                                ),
+                                _buildDivider(),
+
+                                // Feature 2: Offline
+                                _FeatureItem(
+                                  svgIcon: _kWifiOffSvg,
+                                  title: context.trLegacy('离线可用'),
+                                  description: context.trLegacy(
+                                    '无需网络连接即可运行 AI 助手。无论在飞机上、地铁里还是偏远地区，随时随地可用。',
+                                  ),
+                                ),
+                                _buildDivider(),
+
+                                // Feature 3: Free
+                                _FeatureItem(
+                                  svgIcon: _kZapSvg,
+                                  title: context.trLegacy('完全免费'),
+                                  description: context.trLegacy(
+                                    '无需 API 费用或订阅。模型下载后可无限次使用，没有任何隐藏费用。',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Limitation note (flat footnote)
+                        Opacity(
+                          opacity: _contentOpacity.value,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 1),
+                                  child: SvgPicture.string(
+                                    _kInfoSvg,
+                                    width: 14,
+                                    height: 14,
+                                    colorFilter: ColorFilter.mode(
+                                      palette.textTertiary,
+                                      BlendMode.srcIn,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    context.trLegacy(
+                                      '端侧模型较小，回复质量不如云端模型，暂不支持复杂 Agent 任务，适合日常对话与问答。',
+                                    ),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: palette.textTertiary,
+                                      height: 1.5,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Bottom CTA button
+                Opacity(
+                  opacity: _buttonOpacity.value,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                    child: GradientButton(
+                      width: screenWidth - 48,
+                      height: 48,
+                      text: context.trLegacy('浏览模型市场'),
+                      onTap: () async {
+                        await StorageService.setBool(
+                          StorageKeys.welcomeCompleted,
+                          true,
+                        );
+                        GoRouterManager.clearAndNavigateTo('/home/chat');
+                        GoRouterManager.push(
+                          '/home/local_models?tab=market&pinned=$kOnboardingRecommendedModelId',
+                        );
+                      },
+                    ),
+                  ),
+                ),
               ],
             ),
           );
@@ -394,12 +362,13 @@ class _LocalModelIntroPageState extends State<LocalModelIntroPage>
 
 // ---------- Private widgets ----------
 
-class _FeatureCard extends StatelessWidget {
+/// Flat feature item matching the settings page design language.
+class _FeatureItem extends StatelessWidget {
   final String svgIcon;
   final String title;
   final String description;
 
-  const _FeatureCard({
+  const _FeatureItem({
     required this.svgIcon,
     required this.title,
     required this.description,
@@ -409,48 +378,24 @@ class _FeatureCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: palette.surfacePrimary,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: palette.shadowColor,
-            blurRadius: 16,
-            spreadRadius: 0,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 14, 4, 14),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF1930D9), Color(0xFF2DA5F0)],
-              ),
-            ),
-            child: Center(
-              child: SvgPicture.string(
-                svgIcon,
-                width: 22,
-                height: 22,
-                colorFilter: const ColorFilter.mode(
-                  Colors.white,
-                  BlendMode.srcIn,
-                ),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: SvgPicture.string(
+              svgIcon,
+              width: 18,
+              height: 18,
+              colorFilter: ColorFilter.mode(
+                palette.accentPrimary,
+                BlendMode.srcIn,
               ),
             ),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -458,20 +403,22 @@ class _FeatureCard extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
                     color: palette.textPrimary,
-                    height: 1.3,
-                    letterSpacing: -0.2,
+                    height: 1.5,
+                    fontFamily: 'PingFang SC',
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   description,
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
                     color: palette.textSecondary,
                     height: 1.5,
+                    fontFamily: 'PingFang SC',
                   ),
                 ),
               ],
