@@ -94,6 +94,15 @@ class LegacyTextLocalizer {
         '🎉Hi, I\'m Omnibot. I can do many things, let me show you!',
     'Hi，我是小万': 'Hi, I\'m Omnibot',
     '你的 AI 助手，随时准备就绪': 'Your AI assistant, always ready',
+    '无需网络，完全免费': 'No internet needed, completely free',
+    '数据完全留在设备上，不会发送到任何服务器。对话内容、个人偏好等敏感信息始终由你掌控。':
+        'Data stays entirely on your device and is never sent to any server. Conversations, preferences, and sensitive info always remain under your control.',
+    '无需网络连接即可运行 AI 助手。无论在飞机上、地铁里还是偏远地区，随时随地可用。':
+        'Run the AI assistant without any network connection. Whether on a plane, in the subway, or in a remote area — it\'s always available.',
+    '无需 API 费用或订阅。模型下载后可无限次使用，没有任何隐藏费用。':
+        'No API costs or subscriptions. Once downloaded, use the model unlimited times with no hidden charges.',
+    '端侧模型较小，回复质量不如云端模型，暂不支持复杂 Agent 任务，适合日常对话与问答。':
+        'On-device models are smaller with lower quality than cloud models. Complex Agent tasks are not yet supported — best for everyday chat and Q&A.',
     '换一换': 'Shuffle',
     '小万正在思考...': 'Omnibot is thinking...',
     '总结中': 'Summarizing',
