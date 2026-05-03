@@ -502,6 +502,7 @@ class _ChatAppBarModeShortcutButtonState
           tooltip: isEnglish ? 'Pure chat' : '纯聊天模式',
           selected: widget.isPureChatSelected,
           selectedColor: selectedColor,
+          iconSize: 18,
           iconTint: canSelectPureChat
               ? widget.iconTint
               : widget.iconTint.withValues(alpha: 0.42),
@@ -592,6 +593,7 @@ class _ChatAppBarModeShortcutMenuIcon extends StatelessWidget {
     required this.selected,
     required this.selectedColor,
     required this.iconTint,
+    this.iconSize = 20,
   });
 
   final String iconAsset;
@@ -599,6 +601,7 @@ class _ChatAppBarModeShortcutMenuIcon extends StatelessWidget {
   final bool selected;
   final Color selectedColor;
   final Color iconTint;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
@@ -611,8 +614,8 @@ class _ChatAppBarModeShortcutMenuIcon extends StatelessWidget {
         child: Center(
           child: SvgPicture.asset(
             iconAsset,
-            width: 20,
-            height: 20,
+            width: iconSize,
+            height: iconSize,
             colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
           ),
         ),

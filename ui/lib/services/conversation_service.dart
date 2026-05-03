@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:ui/models/conversation_model.dart';
 import 'package:ui/models/conversation_thread_target.dart';
@@ -48,10 +49,10 @@ class ConversationService {
       }
       return conversations.where((item) => !item.isArchived).toList();
     } on PlatformException catch (e) {
-      print('[ConversationService] 获取对话列表失败: ${e.message}');
+      debugPrint('[ConversationService] 获取对话列表失败: ${e.message}');
       return [];
     } catch (e) {
-      print('[ConversationService] 获取对话列表异常: $e');
+      debugPrint('[ConversationService] 获取对话列表异常: $e');
       return [];
     }
   }
@@ -87,10 +88,10 @@ class ConversationService {
       if (result is String) return int.tryParse(result);
       return null;
     } on PlatformException catch (e) {
-      print('创建对话失败: ${e.message}');
+      debugPrint('创建对话失败: ${e.message}');
       return null;
     } catch (e) {
-      print('创建对话失败: $e');
+      debugPrint('创建对话失败: $e');
       return null;
     }
   }
@@ -103,10 +104,10 @@ class ConversationService {
       );
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('更新对话失败: ${e.message}');
+      debugPrint('更新对话失败: ${e.message}');
       return false;
     } catch (e) {
-      print('更新对话失败: $e');
+      debugPrint('更新对话失败: $e');
       return false;
     }
   }
@@ -123,10 +124,10 @@ class ConversationService {
           });
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('更新对话压缩阈值失败: ${e.message}');
+      debugPrint('更新对话压缩阈值失败: ${e.message}');
       return false;
     } catch (e) {
-      print('更新对话压缩阈值失败: $e');
+      debugPrint('更新对话压缩阈值失败: $e');
       return false;
     }
   }
@@ -136,30 +137,31 @@ class ConversationService {
     ConversationMode? mode,
   }) async {
     if (mode == ConversationMode.codex) {
-      try {
-        await CodexAppServerService.archiveThread(
-          conversationId: conversationId,
-        );
-        final conversations = await getAllConversations(includeArchived: true);
-        final conversation = conversations
-            .where((item) => item.id == conversationId)
-            .cast<ConversationModel?>()
-            .firstWhere((item) => item != null, orElse: () => null);
-        if (conversation != null && !conversation.isArchived) {
-          await updateConversation(conversation.copyWith(isArchived: true));
-        }
-        await ConversationHistoryService.clearConversationThreadReferences(
-          conversationId,
-          mode: ConversationMode.codex,
-        );
-        await setCurrentConversationTarget(
-          await ConversationHistoryService.getLastVisibleThreadTarget(),
-        );
-        return true;
-      } catch (e) {
-        print('归档 Codex 对话失败: $e');
+      final appServerArchived = await _setCodexThreadArchivedBestEffort(
+        conversationId: conversationId,
+        archived: true,
+      );
+      final conversation = await _getConversationById(
+        conversationId,
+        includeArchived: true,
+      );
+      var localArchived = conversation == null;
+      if (conversation != null) {
+        localArchived =
+            conversation.isArchived ||
+            await updateConversation(conversation.copyWith(isArchived: true));
+      }
+      if (!appServerArchived && !localArchived) {
         return false;
       }
+      await ConversationHistoryService.clearConversationThreadReferences(
+        conversationId,
+        mode: ConversationMode.codex,
+      );
+      await setCurrentConversationTarget(
+        await ConversationHistoryService.getLastVisibleThreadTarget(),
+      );
+      return true;
     }
     try {
       final result = await _assistCore.invokeMethod<dynamic>(
@@ -186,10 +188,10 @@ class ConversationService {
       );
       return true;
     } on PlatformException catch (e) {
-      print('删除对话失败: ${e.message}');
+      debugPrint('删除对话失败: ${e.message}');
       return false;
     } catch (e) {
-      print('删除对话失败: $e');
+      debugPrint('删除对话失败: $e');
       return false;
     }
   }
@@ -197,20 +199,17 @@ class ConversationService {
   static Future<bool> archiveConversation(
     ConversationModel conversation,
   ) async {
+    var codexArchived = false;
     if (conversation.mode == ConversationMode.codex) {
-      try {
-        await CodexAppServerService.archiveThread(
-          conversationId: conversation.id,
-        );
-      } catch (e) {
-        print('Codex 归档失败: $e');
-        return false;
-      }
+      codexArchived = await _setCodexThreadArchivedBestEffort(
+        conversationId: conversation.id,
+        archived: true,
+      );
     }
     final archived = await updateConversation(
       conversation.copyWith(isArchived: true),
     );
-    if (!archived) {
+    if (!archived && !codexArchived) {
       return false;
     }
     if (conversation.mode == ConversationMode.codex) {
@@ -228,17 +227,54 @@ class ConversationService {
   static Future<bool> unarchiveConversation(
     ConversationModel conversation,
   ) async {
+    var codexRestored = false;
     if (conversation.mode == ConversationMode.codex) {
-      try {
-        await CodexAppServerService.unarchiveThread(
-          conversationId: conversation.id,
+      codexRestored = await _setCodexThreadArchivedBestEffort(
+        conversationId: conversation.id,
+        archived: false,
+      );
+    }
+    final localRestored = await updateConversation(
+      conversation.copyWith(isArchived: false),
+    );
+    return localRestored || codexRestored;
+  }
+
+  static Future<bool> _setCodexThreadArchivedBestEffort({
+    required int conversationId,
+    required bool archived,
+  }) async {
+    try {
+      if (archived) {
+        await CodexAppServerService.archiveThread(
+          conversationId: conversationId,
         );
-      } catch (e) {
-        print('Codex 恢复失败: $e');
-        return false;
+      } else {
+        await CodexAppServerService.unarchiveThread(
+          conversationId: conversationId,
+        );
+      }
+      return true;
+    } catch (e) {
+      final action = archived ? '归档' : '恢复';
+      debugPrint('Codex thread $action 同步失败，继续使用本地历史状态: $e');
+      return false;
+    }
+  }
+
+  static Future<ConversationModel?> _getConversationById(
+    int conversationId, {
+    bool includeArchived = false,
+  }) async {
+    final conversations = await getAllConversations(
+      includeArchived: includeArchived,
+    );
+    for (final conversation in conversations) {
+      if (conversation.id == conversationId) {
+        return conversation;
       }
     }
-    return updateConversation(conversation.copyWith(isArchived: false));
+    return null;
   }
 
   static Future<bool> updateConversationTitle({
@@ -254,7 +290,7 @@ class ConversationService {
         );
         return true;
       } catch (e) {
-        print('更新 Codex 对话标题失败: $e');
+        debugPrint('更新 Codex 对话标题失败: $e');
         return false;
       }
     }
@@ -267,10 +303,10 @@ class ConversationService {
           });
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('更新对话标题失败: ${e.message}');
+      debugPrint('更新对话标题失败: ${e.message}');
       return false;
     } catch (e) {
-      print('更新对话标题失败: $e');
+      debugPrint('更新对话标题失败: $e');
       return false;
     }
   }
@@ -285,10 +321,10 @@ class ConversationService {
       );
       return result as String?;
     } on PlatformException catch (e) {
-      print('生成对话摘要失败: ${e.message}');
+      debugPrint('生成对话摘要失败: ${e.message}');
       return null;
     } catch (e) {
-      print('生成对话摘要失败: $e');
+      debugPrint('生成对话摘要失败: $e');
       return null;
     }
   }
@@ -307,10 +343,10 @@ class ConversationService {
       );
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('完成对话失败: ${e.message}');
+      debugPrint('完成对话失败: ${e.message}');
       return false;
     } catch (e) {
-      print('完成对话失败: $e');
+      debugPrint('完成对话失败: $e');
       return false;
     }
   }
@@ -326,10 +362,10 @@ class ConversationService {
       );
       return result == 'SUCCESS';
     } on PlatformException catch (e) {
-      print('设置当前对话ID失败: ${e.message}');
+      debugPrint('设置当前对话ID失败: ${e.message}');
       return false;
     } catch (e) {
-      print('设置当前对话ID失败: $e');
+      debugPrint('设置当前对话ID失败: $e');
       return false;
     }
   }

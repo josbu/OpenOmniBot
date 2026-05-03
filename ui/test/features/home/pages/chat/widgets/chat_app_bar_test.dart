@@ -772,6 +772,14 @@ void main() {
       find.byKey(const ValueKey('chat-app-bar-mode-menu-pure-chat')),
       findsOneWidget,
     );
+    final pureChatMenuIcon = tester.widget<SvgPicture>(
+      find.descendant(
+        of: find.byKey(const ValueKey('chat-app-bar-mode-menu-pure-chat')),
+        matching: find.byType(SvgPicture),
+      ),
+    );
+    expect(pureChatMenuIcon.width, 18);
+    expect(pureChatMenuIcon.height, 18);
     expect(find.text('Agent 模式'), findsNothing);
     expect(find.text('Codex 模式'), findsNothing);
     expect(find.text('纯聊天模式'), findsNothing);
