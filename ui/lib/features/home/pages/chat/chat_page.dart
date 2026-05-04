@@ -392,7 +392,10 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   double? _hdPadLeftPaneWidth;
   double? _hdPadRightPaneWidth;
   bool _hdPadLeftPaneCollapsed = false;
+  bool _hdPadRightPaneCollapsed = false;
   bool _isHdPadPaneDragging = false;
+  double? _hdPadPaneDragStartWidth;
+  double _hdPadPaneDragDelta = 0;
   final GlobalKey<OmnibotWorkspaceBrowserState> _hdPadWorkspaceBrowserKey =
       GlobalKey<OmnibotWorkspaceBrowserState>();
 
@@ -538,6 +541,13 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     _dismissChatInputFocus();
     setState(() {
       _hdPadLeftPaneCollapsed = !_hdPadLeftPaneCollapsed;
+    });
+  }
+
+  void _toggleHdPadRightPaneCollapsed() {
+    _dismissChatInputFocus();
+    setState(() {
+      _hdPadRightPaneCollapsed = !_hdPadRightPaneCollapsed;
     });
   }
 

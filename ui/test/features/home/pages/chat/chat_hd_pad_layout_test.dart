@@ -77,6 +77,36 @@ void main() {
     );
   });
 
+  test('supports collapsing the right pane while keeping the left pane', () {
+    final layout = resolver.resolve(
+      1200,
+      preferredLeftWidth: 260,
+      preferredRightWidth: 360,
+      collapseRightPane: true,
+    );
+
+    expect(layout.leftWidth, HdPadPaneLayoutResolver.defaultLeftWidth);
+    expect(layout.rightWidth, 0);
+    expect(
+      layout.centerWidth,
+      1200 -
+          HdPadPaneLayoutResolver.dividerHitWidth -
+          HdPadPaneLayoutResolver.defaultLeftWidth,
+    );
+  });
+
+  test('supports collapsing both side panes', () {
+    final layout = resolver.resolve(
+      1200,
+      collapseLeftPane: true,
+      collapseRightPane: true,
+    );
+
+    expect(layout.leftWidth, 0);
+    expect(layout.rightWidth, 0);
+    expect(layout.centerWidth, 1200);
+  });
+
   test('resolves overlay anchor from current keyboard spacing', () {
     final geometry = resolveChatPaneOverlayAnchorGeometry(
       viewportSize: const Size(420, 900),
