@@ -281,7 +281,11 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.byKey(const Key('provider-logo')), findsOneWidget);
+    expect(find.byKey(const Key('provider-logo')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('provider-model-group-toggle-button')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const Key('provider-model-group-gpt-4o')),
       findsOneWidget,
@@ -339,6 +343,20 @@ void main() {
       find.byKey(const Key('provider-model-group-icon-gpt-4o')),
     );
     expect((shortHeaderRight.dx - shortIconRight.dx).abs(), lessThan(6));
+    final shortCountRight = tester.getTopRight(
+      find.byKey(const Key('provider-model-group-count-gpt-4o')),
+    );
+    final shortLineLeft = tester.getTopLeft(
+      find.byKey(const Key('provider-model-group-line-gpt-4o')),
+    );
+    final shortLineRight = tester.getTopRight(
+      find.byKey(const Key('provider-model-group-line-gpt-4o')),
+    );
+    final shortIconLeft = tester.getTopLeft(
+      find.byKey(const Key('provider-model-group-icon-gpt-4o')),
+    );
+    expect(shortLineLeft.dx - shortCountRight.dx, closeTo(10, 0.5));
+    expect(shortIconLeft.dx - shortLineRight.dx, closeTo(6, 0.5));
     final firstModel = find.byKey(
       const ValueKey<String>('provider-model-gpt-4o'),
     );
@@ -348,6 +366,28 @@ void main() {
     expect(tester.getSize(firstModel).height, 44);
     expect(tester.getSize(secondModel).height, 44);
     expect(tester.getSize(firstModel).width, tester.getSize(secondModel).width);
+
+    await tester.tap(
+      find.byKey(const ValueKey('provider-model-group-toggle-button')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(tester.getSize(groupBody).height, 0);
+    expect(
+      tester
+          .getSize(
+            find.byKey(const Key('provider-model-group-body-text-embedding')),
+          )
+          .height,
+      0,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('provider-model-group-toggle-button')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(tester.getSize(groupBody).height, greaterThan(0));
 
     await tester.tap(find.byKey(const Key('provider-model-group-gpt-4o')));
     await tester.pump();
