@@ -4,8 +4,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/features/home/pages/vlm_model_setting/vlm_model_setting_page.dart';
 import 'package:ui/services/assists_core_service.dart';
+import 'package:ui/services/model_provider_config_service.dart';
+import 'package:ui/services/models_dev_catalog_service.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/app_theme.dart';
+
+const _modelsDevCatalogJson = '''
+{
+  "openai": {
+    "id": "openai",
+    "name": "OpenAI",
+    "models": {
+      "gpt-4o": {
+        "id": "gpt-4o",
+        "name": "GPT-4o",
+        "limit": {"context": 128000, "input": 96000, "output": 16384},
+        "modalities": {"input": ["text", "image", "pdf"], "output": ["text"]},
+        "family": "gpt",
+        "attachment": true,
+        "reasoning": true,
+        "tool_call": true,
+        "structured_output": true,
+        "temperature": true
+      }
+    }
+  }
+}
+''';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +64,9 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await StorageService.init();
+    ModelsDevCatalogService.setCatalogForTesting(
+      ModelsDevCatalogService.parseCatalog(_modelsDevCatalogJson),
+    );
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
@@ -54,6 +82,7 @@ void main() {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(assistCoreChannel, null);
+    ModelsDevCatalogService.resetForTesting();
   });
 
   testWidgets(
@@ -207,6 +236,58 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
 
     expect(saveCalls, 1);
+  });
+
+  testWidgets('renders models.dev grouping, context, and input modalities', (
+    tester,
+  ) async {
+    await ModelProviderConfigService.saveCachedFetchedModels(
+      profileId: 'provider-1',
+      apiBase: 'https://api.openai.com/v1',
+      models: const [ProviderModelOption(id: 'gpt-4o', displayName: 'gpt-4o')],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        home: const VlmModelSettingPage(),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byKey(const Key('provider-logo')), findsOneWidget);
+    expect(
+      find.byKey(const Key('provider-model-group-gpt-4o')),
+      findsOneWidget,
+    );
+    expect(find.text('128K'), findsOneWidget);
+    expect(
+      find.byKey(const Key('provider-model-reasoning-gpt-4o')),
+      findsOneWidget,
+    );
+    expect(find.text('Context 128K'), findsNothing);
+    expect(find.text('Tools'), findsNothing);
+    expect(find.text('JSON'), findsNothing);
+    expect(find.text('Files'), findsNothing);
+    expect(find.text('Temp'), findsNothing);
+    expect(find.text('自动'), findsNothing);
+    expect(find.text('手动'), findsNothing);
+    expect(
+      find.byKey(const Key('provider-model-modality-text')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('provider-model-modality-image')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('provider-model-modality-pdf')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('file sync does not reload provider fields while editing', (

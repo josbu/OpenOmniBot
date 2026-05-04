@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:http/http.dart' as http;
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/model_provider_config_service.dart';
 import 'package:ui/theme/app_colors.dart';
@@ -35,6 +36,26 @@ const String _kPackageSvg = '''
 </svg>
 ''';
 
+const String _kInputImageSvg = '''
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-image-icon lucide-image"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+''';
+
+const String _kInputTextSvg = '''
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-text-icon lucide-file-text"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+''';
+
+const String _kInputPdfSvg = '''
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-icon lucide-file"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/></svg>
+''';
+
+const String _kContextLimitSvg = '''
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="6" rx="2"/><path d="M7 10v4"/><path d="M11 10v4"/><path d="M15 10v4"/><path d="M21 10h-2"/><path d="M21 14h-2"/><path d="M5 10H3"/><path d="M5 14H3"/></svg>
+''';
+
+const String _kReasoningSvg = '''
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.524 5.77 4 4 0 0 0 1.07 6.046A3.5 3.5 0 0 0 12 18.5"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.524 5.77 4 4 0 0 1-1.07 6.046A3.5 3.5 0 0 1 12 18.5"/><path d="M12 5v13.5"/><path d="M8 14h.01"/><path d="M16 14h.01"/><path d="M9 9h.01"/><path d="M15 9h.01"/></svg>
+''';
+
 const double _kProviderSwitchPopupMaxHeight = 320;
 
 enum _ProviderModelSource { manual, remote }
@@ -52,10 +73,12 @@ const List<_ProtocolTypeOption> _kProtocolTypeOptions = <_ProtocolTypeOption>[
 ];
 
 class _ProviderModelItem {
-  const _ProviderModelItem({required this.id, required this.source});
+  const _ProviderModelItem({required this.model, required this.source});
 
-  final String id;
+  final ProviderModelOption model;
   final _ProviderModelSource source;
+
+  String get id => model.id;
 }
 
 class VlmModelSettingPage extends StatefulWidget {
@@ -95,9 +118,11 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
 
   List<ModelProviderProfileSummary> _profiles = const [];
   String _editingProfileId = '';
+  List<ProviderModelOption> _manualModels = const [];
   List<ProviderModelOption> _remoteModels = const [];
   List<String> _manualModelIds = const [];
   Set<String> _deletingModelIds = <String>{};
+  String? _providerLogoUrl;
 
   ModelProviderProfileSummary? get _currentProfile {
     for (final profile in _profiles) {
@@ -145,18 +170,26 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
   List<_ProviderModelItem> get _modelItems {
     final items = <_ProviderModelItem>[];
     final seen = <String>{};
+    final manualModels = _manualModels.isNotEmpty || _manualModelIds.isEmpty
+        ? _manualModels
+        : _manualModelIds
+              .map(
+                (id) => ProviderModelOption(
+                  id: id,
+                  displayName: id,
+                  ownedBy: 'manual',
+                ),
+              )
+              .toList();
 
-    for (final modelId in _manualModelIds) {
-      final normalized = modelId.trim();
+    for (final model in manualModels) {
+      final normalized = model.id.trim();
       if (!ModelProviderConfigService.isValidModelName(normalized)) {
         continue;
       }
       if (seen.add(normalized)) {
         items.add(
-          _ProviderModelItem(
-            id: normalized,
-            source: _ProviderModelSource.manual,
-          ),
+          _ProviderModelItem(model: model, source: _ProviderModelSource.manual),
         );
       }
     }
@@ -168,15 +201,33 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
       }
       if (seen.add(normalized)) {
         items.add(
-          _ProviderModelItem(
-            id: normalized,
-            source: _ProviderModelSource.remote,
-          ),
+          _ProviderModelItem(model: model, source: _ProviderModelSource.remote),
         );
       }
     }
 
     return items;
+  }
+
+  List<MapEntry<String, List<_ProviderModelItem>>> get _modelGroups {
+    final groups = <String, List<_ProviderModelItem>>{};
+    final current = _currentProfile;
+    final providerGroupId = current?.id.trim().isNotEmpty == true
+        ? current!.id.trim()
+        : current?.name.trim() ?? '';
+    for (final item in _modelItems) {
+      final group =
+          (item.model.group?.trim().isNotEmpty == true
+                  ? item.model.group!.trim()
+                  : ModelProviderConfigService.defaultModelGroupName(
+                      item.id,
+                      providerId: providerGroupId,
+                    ))
+              .trim();
+      final groupName = group.isEmpty ? 'other' : group;
+      groups.putIfAbsent(groupName, () => <_ProviderModelItem>[]).add(item);
+    }
+    return groups.entries.toList();
   }
 
   @override
@@ -356,19 +407,23 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
         (profile) => profile.id == payload.editingProfileId,
         orElse: () => payload.profiles.first,
       );
+      final manualModelIds = await ModelProviderConfigService.getManualModelIds(
+        profileId: editingProfile.id,
+      );
       final storedModels = await Future.wait<dynamic>([
-        ModelProviderConfigService.getManualModelIds(
-          profileId: editingProfile.id,
-        ),
+        _loadManualModelsForProfile(editingProfile, manualModelIds),
         _loadRemoteModelsForProfile(editingProfile),
+        _loadProviderLogoUrl(editingProfile),
       ]);
       if (!mounted) return;
 
       _applyProfile(
         profiles: payload.profiles,
         editingProfileId: editingProfile.id,
-        manualModelIds: storedModels[0] as List<String>,
+        manualModelIds: manualModelIds,
+        manualModels: storedModels[0] as List<ProviderModelOption>,
         remoteModels: storedModels[1] as List<ProviderModelOption>,
+        providerLogoUrl: storedModels[2] as String?,
         syncControllers: true,
       );
     } catch (_) {
@@ -385,7 +440,9 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     required List<ModelProviderProfileSummary> profiles,
     required String editingProfileId,
     required List<String> manualModelIds,
+    required List<ProviderModelOption> manualModels,
     required List<ProviderModelOption> remoteModels,
+    required String? providerLogoUrl,
     required bool syncControllers,
   }) {
     final current = profiles.firstWhere(
@@ -401,7 +458,9 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
       _profiles = profiles;
       _editingProfileId = current.id;
       _manualModelIds = manualModelIds;
+      _manualModels = manualModels;
       _remoteModels = remoteModels;
+      _providerLogoUrl = providerLogoUrl;
       _selectedProtocolType = current.protocolType;
     });
   }
@@ -427,15 +486,54 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
       try {
         return await ModelProviderConfigService.fetchModels(
           profileId: profile.id,
+          providerName: profile.name,
         );
       } catch (_) {
-        return ModelProviderConfigService.getCachedFetchedModels(
+        final cached = await ModelProviderConfigService.getCachedFetchedModels(
           profileId: profile.id,
         );
+        return _enrichModelsForProfile(profile, cached);
       }
     }
-    return ModelProviderConfigService.getCachedFetchedModels(
+    final cached = await ModelProviderConfigService.getCachedFetchedModels(
       profileId: profile.id,
+      apiBase: profile.baseUrl,
+    );
+    return _enrichModelsForProfile(profile, cached);
+  }
+
+  Future<List<ProviderModelOption>> _loadManualModelsForProfile(
+    ModelProviderProfileSummary profile,
+    List<String> manualModelIds,
+  ) {
+    final manualModels = manualModelIds
+        .map(
+          (modelId) => ProviderModelOption(
+            id: modelId,
+            displayName: modelId,
+            ownedBy: 'manual',
+          ),
+        )
+        .toList();
+    return _enrichModelsForProfile(profile, manualModels);
+  }
+
+  Future<List<ProviderModelOption>> _enrichModelsForProfile(
+    ModelProviderProfileSummary profile,
+    List<ProviderModelOption> models,
+  ) {
+    return ModelProviderConfigService.enrichModelsForProfile(
+      profileId: profile.id,
+      providerName: profile.name,
+      apiBase: profile.baseUrl,
+      models: models,
+    );
+  }
+
+  Future<String?> _loadProviderLogoUrl(ModelProviderProfileSummary profile) {
+    return ModelProviderConfigService.resolveProviderLogoUrl(
+      providerId: profile.id,
+      providerName: profile.name,
       apiBase: profile.baseUrl,
     );
   }
@@ -468,16 +566,22 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
       final selected = await ModelProviderConfigService.setEditingProfile(
         profileId,
       );
+      final manualModelIds = await ModelProviderConfigService.getManualModelIds(
+        profileId: selected.id,
+      );
       final storedModels = await Future.wait<dynamic>([
-        ModelProviderConfigService.getManualModelIds(profileId: selected.id),
+        _loadManualModelsForProfile(selected, manualModelIds),
         _loadRemoteModelsForProfile(selected),
+        _loadProviderLogoUrl(selected),
       ]);
       if (!mounted) return;
       _applyProfile(
         profiles: _profiles,
         editingProfileId: selected.id,
-        manualModelIds: storedModels[0] as List<String>,
+        manualModelIds: manualModelIds,
+        manualModels: storedModels[0] as List<ProviderModelOption>,
         remoteModels: storedModels[1] as List<ProviderModelOption>,
+        providerLogoUrl: storedModels[2] as String?,
         syncControllers: true,
       );
     } catch (e) {
@@ -488,63 +592,6 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
       );
     } finally {
       _isSwitchingProfile = false;
-    }
-  }
-
-  Future<void> _fetchModels({bool silentError = false}) async {
-    final current = _currentProfile;
-    if (current == null || _isFetchingModels) return;
-    final baseUrl = _baseUrlController.text.trim();
-    final apiKey = _apiKeyController.text.trim();
-
-    if (baseUrl.isEmpty) {
-      if (!silentError) {
-        showToast(
-          context.l10n.modelProviderBaseUrlRequired,
-          type: ToastType.warning,
-        );
-      }
-      return;
-    }
-    if (!ModelProviderConfigService.isValidApiBase(baseUrl)) {
-      if (!silentError) {
-        showToast(
-          context.l10n.modelProviderInvalidBaseUrl,
-          type: ToastType.error,
-        );
-      }
-      return;
-    }
-
-    setState(() => _isFetchingModels = true);
-    try {
-      final models = await ModelProviderConfigService.fetchModels(
-        apiBase: baseUrl,
-        apiKey: apiKey,
-        profileId: current.id,
-      );
-      if (!mounted) return;
-      setState(() {
-        _remoteModels = models;
-      });
-      if (!silentError) {
-        showToast(
-          models.isEmpty
-              ? context.l10n.localModelsNoAvailableModels
-              : context.trLegacy('已拉取 ${models.length} 个模型'),
-          type: models.isEmpty ? ToastType.warning : ToastType.success,
-        );
-      }
-    } catch (e) {
-      if (!mounted || silentError) return;
-      showToast(
-        context.l10n.modelProviderFetchFailed(e.toString()),
-        type: ToastType.error,
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isFetchingModels = false);
-      }
     }
   }
 
@@ -582,7 +629,9 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
         profiles: nextProfiles,
         editingProfileId: saved.id,
         manualModelIds: const [],
+        manualModels: const [],
         remoteModels: const [],
+        providerLogoUrl: null,
         syncControllers: true,
       );
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -636,10 +685,14 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
         apiBase: baseUrl,
         apiKey: apiKey,
         profileId: current.id,
+        providerName: current.name,
       );
       if (!mounted) return;
       setState(() {
         _remoteModels = models;
+        _providerLogoUrl = models.isNotEmpty
+            ? models.first.providerLogoUrl ?? _providerLogoUrl
+            : _providerLogoUrl;
       });
       if (!silentError) {
         final message = models.isEmpty
@@ -699,16 +752,22 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
         (profile) => profile.id == payload.editingProfileId,
         orElse: () => payload.profiles.first,
       );
+      final manualModelIds = await ModelProviderConfigService.getManualModelIds(
+        profileId: fallback.id,
+      );
       final storedModels = await Future.wait<dynamic>([
-        ModelProviderConfigService.getManualModelIds(profileId: fallback.id),
+        _loadManualModelsForProfile(fallback, manualModelIds),
         _loadRemoteModelsForProfile(fallback),
+        _loadProviderLogoUrl(fallback),
       ]);
       if (!mounted) return;
       _applyProfile(
         profiles: payload.profiles,
         editingProfileId: fallback.id,
-        manualModelIds: storedModels[0] as List<String>,
+        manualModelIds: manualModelIds,
+        manualModels: storedModels[0] as List<ProviderModelOption>,
         remoteModels: storedModels[1] as List<ProviderModelOption>,
+        providerLogoUrl: storedModels[2] as String?,
         syncControllers: true,
       );
       showToast(context.l10n.modelProviderDeleted, type: ToastType.success);
@@ -750,8 +809,14 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     }
 
     final nextManual = [..._manualModelIds, normalized];
+    final nextManualModels = await _loadManualModelsForProfile(
+      current,
+      nextManual,
+    );
+    if (!mounted) return;
     setState(() {
       _manualModelIds = nextManual;
+      _manualModels = nextManualModels;
     });
 
     await ModelProviderConfigService.saveManualModelIds(
@@ -769,11 +834,13 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     }
 
     final prevManual = List<String>.from(_manualModelIds);
+    final prevManualModels = List<ProviderModelOption>.from(_manualModels);
     final prevRemote = List<ProviderModelOption>.from(_remoteModels);
 
     setState(() {
       _deletingModelIds = {..._deletingModelIds, item.id};
       _manualModelIds = _manualModelIds.where((id) => id != item.id).toList();
+      _manualModels = _manualModels.where((m) => m.id != item.id).toList();
       _remoteModels = _remoteModels.where((m) => m.id != item.id).toList();
     });
 
@@ -796,6 +863,7 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
       if (!mounted) return;
       setState(() {
         _manualModelIds = prevManual;
+        _manualModels = prevManualModels;
         _remoteModels = prevRemote;
       });
       showToast(context.l10n.modelDeleteFailed, type: ToastType.error);
@@ -1004,8 +1072,242 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     );
   }
 
+  Widget _buildProviderLogo({double size = 24}) {
+    final logoUrl = _providerLogoUrl?.trim() ?? '';
+    final fallback = Center(
+      child: Icon(
+        Icons.hub_outlined,
+        size: size * 0.62,
+        color: _tertiaryTextColor,
+      ),
+    );
+    return Container(
+      key: const Key('provider-logo'),
+      width: size,
+      height: size,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: _surfaceColor,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: _isDarkTheme
+              ? context.omniPalette.borderSubtle
+              : const Color(0x14000000),
+        ),
+      ),
+      child: logoUrl.isEmpty
+          ? fallback
+          : _ProviderLogoSvg(
+              logoUrl,
+              fallback: fallback,
+              width: size,
+              height: size,
+            ),
+    );
+  }
+
+  String _formatTokenLimit(int? value) {
+    if (value == null || value <= 0) {
+      return '--';
+    }
+    if (value >= 1000000) {
+      final formatted = value % 1000000 == 0
+          ? '${value ~/ 1000000}'
+          : (value / 1000000).toStringAsFixed(1);
+      return '${formatted}M';
+    }
+    if (value >= 1000) {
+      final formatted = value % 1000 == 0
+          ? '${value ~/ 1000}'
+          : (value / 1000).toStringAsFixed(1);
+      return '${formatted}K';
+    }
+    return value.toString();
+  }
+
+  Widget _buildCompactIconChip({
+    required String key,
+    required String svg,
+    required String tooltip,
+    String? label,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        key: Key(key),
+        height: 22,
+        constraints: const BoxConstraints(minWidth: 22),
+        padding: label == null
+            ? EdgeInsets.zero
+            : const EdgeInsets.symmetric(horizontal: 6),
+        decoration: BoxDecoration(
+          color: _cardColor,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: _isDarkTheme
+                ? context.omniPalette.borderSubtle
+                : const Color(0x14000000),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SvgPicture.string(
+              svg,
+              width: 14,
+              height: 14,
+              colorFilter: ColorFilter.mode(
+                _secondaryTextColor,
+                BlendMode.srcIn,
+              ),
+            ),
+            if (label != null) ...[
+              const SizedBox(width: 4),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _tertiaryTextColor,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: 'PingFang SC',
+                  letterSpacing: 0,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModalityIcon({required String svg, required String tooltip}) {
+    return _buildCompactIconChip(
+      key: 'provider-model-modality-${tooltip.toLowerCase().split(' ').first}',
+      svg: svg,
+      tooltip: tooltip,
+    );
+  }
+
+  Widget _buildModalityTextChip(String modality) {
+    return Container(
+      height: 22,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: _isDarkTheme
+              ? context.omniPalette.borderSubtle
+              : const Color(0x14000000),
+        ),
+      ),
+      child: Text(
+        modality.toUpperCase(),
+        style: TextStyle(
+          color: _secondaryTextColor,
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0,
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildModelMetadataWidgets(ProviderModelOption model) {
+    final widgets = <Widget>[];
+    final contextLimit = _formatTokenLimit(model.contextLimit);
+    widgets.add(
+      _buildCompactIconChip(
+        key: 'provider-model-context-${model.id}',
+        svg: _kContextLimitSvg,
+        tooltip: 'Context limit $contextLimit',
+        label: contextLimit,
+      ),
+    );
+    if (model.reasoning == true) {
+      widgets.add(
+        _buildCompactIconChip(
+          key: 'provider-model-reasoning-${model.id}',
+          svg: _kReasoningSvg,
+          tooltip: 'Reasoning',
+        ),
+      );
+    }
+    widgets.addAll(_buildInputModalityWidgets(model));
+    return widgets;
+  }
+
+  List<Widget> _buildInputModalityWidgets(ProviderModelOption model) {
+    final modalities = model.inputModalities
+        .map((item) => item.trim().toLowerCase())
+        .where((item) => item.isNotEmpty)
+        .toSet();
+    if (modalities.isEmpty) {
+      return const [];
+    }
+    final widgets = <Widget>[];
+    if (modalities.contains('text')) {
+      widgets.add(
+        _buildModalityIcon(svg: _kInputTextSvg, tooltip: 'Text input'),
+      );
+    }
+    if (modalities.contains('image')) {
+      widgets.add(
+        _buildModalityIcon(svg: _kInputImageSvg, tooltip: 'Image input'),
+      );
+    }
+    if (modalities.contains('pdf')) {
+      widgets.add(_buildModalityIcon(svg: _kInputPdfSvg, tooltip: 'PDF input'));
+    }
+    for (final modality in modalities) {
+      if (modality == 'text' || modality == 'image' || modality == 'pdf') {
+        continue;
+      }
+      widgets.add(_buildModalityTextChip(modality));
+    }
+    return widgets;
+  }
+
+  Widget _buildModelGroupHeader(String groupName, int count) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 10, 2, 7),
+      child: Row(
+        key: Key('provider-model-group-$groupName'),
+        children: [
+          Expanded(
+            child: Text(
+              groupName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: _secondaryTextColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                fontFamily: 'PingFang SC',
+              ),
+            ),
+          ),
+          Text(
+            '$count',
+            style: TextStyle(
+              color: _tertiaryTextColor,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              fontFamily: 'PingFang SC',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSwipeModelItem(_ProviderModelItem item) {
     final isDeleting = _deletingModelIds.contains(item.id);
+    final metadataWidgets = _buildModelMetadataWidgets(item.model);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1077,33 +1379,51 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
-                          vertical: 13,
+                          vertical: 11,
                         ),
                         child: Row(
                           children: [
                             Expanded(
-                              child: Text(
-                                item.id,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: _primaryTextColor,
-                                  fontFamily: 'PingFang SC',
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              context.trLegacy(
-                                item.source == _ProviderModelSource.manual
-                                    ? '手动'
-                                    : '自动',
-                              ),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: _tertiaryTextColor,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          item.id,
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                            color: _primaryTextColor,
+                                            fontFamily: 'PingFang SC',
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 7),
+                                  SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    physics: const BouncingScrollPhysics(),
+                                    child: Row(
+                                      children: [
+                                        for (
+                                          var index = 0;
+                                          index < metadataWidgets.length;
+                                          index++
+                                        ) ...[
+                                          if (index > 0)
+                                            const SizedBox(width: 6),
+                                          metadataWidgets[index],
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -1180,6 +1500,9 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     final current = _currentProfile;
     final name = current?.name.trim();
     final displayName = (name == null || name.isEmpty) ? 'Provider' : name;
+    final textMaxWidth = maxWidth == null
+        ? double.infinity
+        : (maxWidth - 32).clamp(48.0, maxWidth).toDouble();
     return Builder(
       builder: (anchorContext) {
         return InkWell(
@@ -1195,10 +1518,10 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                _buildProviderLogo(size: 24),
+                const SizedBox(width: 8),
                 ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: maxWidth ?? double.infinity,
-                  ),
+                  constraints: BoxConstraints(maxWidth: textMaxWidth),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
@@ -1319,6 +1642,7 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
   @override
   Widget build(BuildContext context) {
     final modelItems = _modelItems;
+    final modelGroups = _modelGroups;
 
     return Scaffold(
       backgroundColor: _pageBackground,
@@ -1554,10 +1878,20 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
                                 )
                               : ListView.builder(
                                   padding: const EdgeInsets.all(10),
-                                  itemCount: modelItems.length,
+                                  itemCount: modelGroups.length,
                                   itemBuilder: (context, index) {
-                                    return _buildSwipeModelItem(
-                                      modelItems[index],
+                                    final group = modelGroups[index];
+                                    return Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        _buildModelGroupHeader(
+                                          group.key,
+                                          group.value.length,
+                                        ),
+                                        ...group.value.map(
+                                          _buildSwipeModelItem,
+                                        ),
+                                      ],
                                     );
                                   },
                                 ),
@@ -1568,6 +1902,77 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
                 ],
               ),
       ),
+    );
+  }
+}
+
+class _ProviderLogoSvg extends StatefulWidget {
+  const _ProviderLogoSvg(
+    this.url, {
+    required this.fallback,
+    required this.width,
+    required this.height,
+  });
+
+  final String url;
+  final Widget fallback;
+  final double width;
+  final double height;
+
+  @override
+  State<_ProviderLogoSvg> createState() => _ProviderLogoSvgState();
+}
+
+class _ProviderLogoSvgState extends State<_ProviderLogoSvg> {
+  late Future<String?> _svgFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _svgFuture = _loadSvg(widget.url);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProviderLogoSvg oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _svgFuture = _loadSvg(widget.url);
+    }
+  }
+
+  Future<String?> _loadSvg(String url) async {
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null || !uri.hasScheme || !uri.hasAuthority) {
+      return null;
+    }
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 6));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return null;
+      }
+      final body = response.body.trimLeft();
+      return body.startsWith('<svg') ? body : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: _svgFuture,
+      builder: (context, snapshot) {
+        final svg = snapshot.data;
+        if (svg == null || svg.isEmpty) {
+          return widget.fallback;
+        }
+        return SvgPicture.string(
+          svg,
+          width: widget.width,
+          height: widget.height,
+          fit: BoxFit.contain,
+        );
+      },
     );
   }
 }
