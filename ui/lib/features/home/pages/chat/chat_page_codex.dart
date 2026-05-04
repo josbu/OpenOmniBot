@@ -29,6 +29,9 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
         _codexStatus = status;
         _isCodexStatusLoading = false;
       });
+      if (_activeMode == ChatPageMode.codex) {
+        unawaited(_loadCodexModelOptionsWhenReady());
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -147,9 +150,39 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       _activeCodexModelId = model;
       _activeCodexCollaborationMode = collaborationMode;
     });
-    if (model == null && _codexStatus.connected) {
-      unawaited(_loadCodexModelOptions(force: true));
+    if (model == null) {
+      unawaited(_loadCodexModelOptionsWhenReady());
     }
+  }
+
+  Future<void> _loadCodexModelOptionsWhenReady() async {
+    if ((_activeCodexModelId ?? '').trim().isNotEmpty ||
+        _isCodexModelListLoading) {
+      return;
+    }
+    var status = _codexStatus;
+    try {
+      if (!status.ready) {
+        status = await CodexAppServerService.status();
+      }
+      if (!status.ready) {
+        return;
+      }
+      if (!status.connected) {
+        status = await CodexAppServerService.connect();
+        unawaited(CodexAppServerService.listThreads());
+      }
+    } catch (error) {
+      debugPrint('Prepare Codex model options failed: $error');
+      return;
+    }
+    if (!mounted || !status.connected) {
+      return;
+    }
+    setState(() {
+      _codexStatus = status;
+    });
+    await _loadCodexModelOptions(force: true);
   }
 
   @override

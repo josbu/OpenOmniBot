@@ -530,6 +530,12 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     }
   }
 
+  void _resetHdPadPaneDragState() {
+    _isHdPadPaneDragging = false;
+    _hdPadPaneDragStartWidth = null;
+    _hdPadPaneDragDelta = 0;
+  }
+
   void _handleEmbeddedDrawerThreadTargetSelected(
     ConversationThreadTarget target,
   ) {
@@ -540,6 +546,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   void _toggleHdPadLeftPaneCollapsed() {
     _dismissChatInputFocus();
     setState(() {
+      _resetHdPadPaneDragState();
       _hdPadLeftPaneCollapsed = !_hdPadLeftPaneCollapsed;
     });
   }
@@ -547,6 +554,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   void _toggleHdPadRightPaneCollapsed() {
     _dismissChatInputFocus();
     setState(() {
+      _resetHdPadPaneDragState();
       _hdPadRightPaneCollapsed = !_hdPadRightPaneCollapsed;
     });
   }

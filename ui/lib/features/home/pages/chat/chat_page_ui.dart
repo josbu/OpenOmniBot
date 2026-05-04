@@ -1441,21 +1441,23 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                           final nextWidth =
                               (_hdPadPaneDragStartWidth ?? layout.leftWidth) +
                               _hdPadPaneDragDelta;
+                          final shouldCollapse =
+                              nextWidth <= leftCollapseThreshold;
                           setState(() {
-                            if (nextWidth <= leftCollapseThreshold) {
+                            if (shouldCollapse) {
                               _hdPadLeftPaneCollapsed = true;
+                              _resetHdPadPaneDragState();
                             } else {
                               _hdPadLeftPaneCollapsed = false;
                               _hdPadLeftPaneWidth = nextWidth;
                             }
                           });
+                          if (shouldCollapse) {
+                            _persistHdPadPanePreferences();
+                          }
                         },
                         onDragEnd: () {
-                          setState(() {
-                            _isHdPadPaneDragging = false;
-                            _hdPadPaneDragStartWidth = null;
-                            _hdPadPaneDragDelta = 0;
-                          });
+                          setState(_resetHdPadPaneDragState);
                           _persistHdPadPanePreferences();
                         },
                       ),
@@ -1527,21 +1529,23 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                           final nextWidth =
                               (_hdPadPaneDragStartWidth ?? layout.rightWidth) -
                               _hdPadPaneDragDelta;
+                          final shouldCollapse =
+                              nextWidth <= rightCollapseThreshold;
                           setState(() {
-                            if (nextWidth <= rightCollapseThreshold) {
+                            if (shouldCollapse) {
                               _hdPadRightPaneCollapsed = true;
+                              _resetHdPadPaneDragState();
                             } else {
                               _hdPadRightPaneCollapsed = false;
                               _hdPadRightPaneWidth = nextWidth;
                             }
                           });
+                          if (shouldCollapse) {
+                            _persistHdPadPanePreferences();
+                          }
                         },
                         onDragEnd: () {
-                          setState(() {
-                            _isHdPadPaneDragging = false;
-                            _hdPadPaneDragStartWidth = null;
-                            _hdPadPaneDragDelta = 0;
-                          });
+                          setState(_resetHdPadPaneDragState);
                           _persistHdPadPanePreferences();
                         },
                       ),
@@ -1621,7 +1625,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               canPop: false,
               onPopInvokedWithResult: (didPop, _) {
                 if (didPop) return;
-                if (isHdPadLandscape && _workspaceBrowserCanGoUp) {
+                if (isHdPadLandscape &&
+                    !_hdPadRightPaneCollapsed &&
+                    _workspaceBrowserCanGoUp) {
                   _hdPadWorkspaceBrowserKey.currentState?.openParentDirectory();
                   return;
                 }
