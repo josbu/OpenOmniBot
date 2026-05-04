@@ -1331,6 +1331,7 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
       padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildModelGroupHeader(
             group.key,
@@ -1383,58 +1384,68 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
           splashColor: palette.accentPrimary.withValues(alpha: 0.06),
           highlightColor: Colors.transparent,
           child: Container(
+            width: double.infinity,
             constraints: const BoxConstraints(minHeight: 28),
             alignment: Alignment.centerLeft,
-            padding: const EdgeInsets.fromLTRB(4, 5, 0, 5),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Flexible(
-                  fit: FlexFit.loose,
-                  child: Text(
-                    groupName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _tertiaryTextColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      fontFamily: 'PingFang SC',
-                      letterSpacing: 0.4,
+            padding: const EdgeInsets.fromLTRB(4, 5, 2, 5),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final groupNameMaxWidth = (constraints.maxWidth * 0.56)
+                    .clamp(48.0, 220.0)
+                    .toDouble();
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: groupNameMaxWidth),
+                      child: Text(
+                        groupName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _tertiaryTextColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'PingFang SC',
+                          letterSpacing: 0.4,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '$count',
-                  style: TextStyle(
-                    color: _tertiaryTextColor,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    fontFamily: 'PingFang SC',
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Container(
-                    height: 1,
-                    color: _isDarkTheme
-                        ? palette.borderSubtle.withValues(alpha: 0.56)
-                        : const Color(0x16000000),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                AnimatedRotation(
-                  turns: expanded ? 0 : -0.25,
-                  duration: _modelGroupToggleDuration,
-                  curve: Curves.easeInOutCubicEmphasized,
-                  child: Icon(
-                    Icons.keyboard_arrow_down_rounded,
-                    size: 18,
-                    color: _tertiaryTextColor,
-                  ),
-                ),
-              ],
+                    const SizedBox(width: 8),
+                    Text(
+                      '$count',
+                      style: TextStyle(
+                        color: _tertiaryTextColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        fontFamily: 'PingFang SC',
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Container(
+                        key: Key('provider-model-group-line-$groupName'),
+                        height: 1,
+                        color: _isDarkTheme
+                            ? palette.borderSubtle.withValues(alpha: 0.56)
+                            : const Color(0x16000000),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    AnimatedRotation(
+                      key: Key('provider-model-group-icon-$groupName'),
+                      turns: expanded ? 0 : -0.25,
+                      duration: _modelGroupToggleDuration,
+                      curve: Curves.easeInOutCubicEmphasized,
+                      child: Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        size: 18,
+                        color: _tertiaryTextColor,
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),

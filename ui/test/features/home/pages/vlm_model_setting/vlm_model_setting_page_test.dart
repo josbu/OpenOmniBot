@@ -35,6 +35,13 @@ const _modelsDevCatalogJson = '''
         "modalities": {"input": ["text"], "output": ["text"]},
         "family": "gpt",
         "reasoning": true
+      },
+      "text-embedding-3-large": {
+        "id": "text-embedding-3-large",
+        "name": "Text Embedding 3 Large",
+        "limit": {"context": 8191},
+        "modalities": {"input": ["text"], "output": ["text"]},
+        "family": "embedding"
       }
     }
   }
@@ -256,6 +263,10 @@ void main() {
       models: const [
         ProviderModelOption(id: 'gpt-4o', displayName: 'gpt-4o'),
         ProviderModelOption(id: 'gpt-4o-mini', displayName: 'gpt-4o-mini'),
+        ProviderModelOption(
+          id: 'text-embedding-3-large',
+          displayName: 'text-embedding-3-large',
+        ),
       ],
     );
 
@@ -273,6 +284,10 @@ void main() {
     expect(find.byKey(const Key('provider-logo')), findsOneWidget);
     expect(
       find.byKey(const Key('provider-model-group-gpt-4o')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('provider-model-group-text-embedding')),
       findsOneWidget,
     );
     expect(find.text('2'), findsOneWidget);
@@ -297,7 +312,7 @@ void main() {
     expect(find.text('手动'), findsNothing);
     expect(
       find.byKey(const Key('provider-model-modality-text')),
-      findsNWidgets(2),
+      findsNWidgets(3),
     );
     expect(
       find.byKey(const Key('provider-model-modality-image')),
@@ -310,6 +325,20 @@ void main() {
 
     final groupBody = find.byKey(const Key('provider-model-group-body-gpt-4o'));
     expect(tester.getSize(groupBody).height, greaterThan(0));
+    final shortLine = tester.getSize(
+      find.byKey(const Key('provider-model-group-line-gpt-4o')),
+    );
+    final longLine = tester.getSize(
+      find.byKey(const Key('provider-model-group-line-text-embedding')),
+    );
+    expect(shortLine.width, greaterThan(longLine.width));
+    final shortHeaderRight = tester.getTopRight(
+      find.byKey(const Key('provider-model-group-gpt-4o')),
+    );
+    final shortIconRight = tester.getTopRight(
+      find.byKey(const Key('provider-model-group-icon-gpt-4o')),
+    );
+    expect((shortHeaderRight.dx - shortIconRight.dx).abs(), lessThan(6));
     final firstModel = find.byKey(
       const ValueKey<String>('provider-model-gpt-4o'),
     );
