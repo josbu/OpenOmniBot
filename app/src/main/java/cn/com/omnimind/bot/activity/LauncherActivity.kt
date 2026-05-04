@@ -2,7 +2,6 @@ package cn.com.omnimind.bot.activity
 
 import android.app.Activity
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -27,19 +26,9 @@ class LauncherActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(StartupThemeResolver.resolveSplashTheme(this))
-        applyResponsiveOrientation()
         super.onCreate(savedInstanceState)
         OmniLog.d(TAG, "LauncherActivity onCreate")
         showLoadingAndStartMain()
-    }
-
-    private fun applyResponsiveOrientation() {
-        val isTablet = resources.configuration.smallestScreenWidthDp >= 600
-        requestedOrientation = if (isTablet) {
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        }
     }
 
     /**

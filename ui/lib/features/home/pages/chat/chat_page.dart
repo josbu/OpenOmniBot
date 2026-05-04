@@ -343,8 +343,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       'chat_hd_pad_left_pane_width';
   static const String _hdPadRightPaneWidthStorageKey =
       'chat_hd_pad_right_pane_width';
-  static const double _hdPadLandscapeMinShortestSide = 600;
-  static const double _hdPadLandscapeMinWidth = 960;
   static const Duration _normalSurfaceModelRevealDelay = Duration(
     milliseconds: 1700,
   );
@@ -502,10 +500,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       (1.0 - _surfacePageProgress).clamp(0.0, 1.0).toDouble();
   bool _isHdPadLandscapeForMediaQuery(MediaQueryData mediaQuery) {
     final size = mediaQuery.size;
-    final shortestSide = math.min(size.width, size.height);
-    return shortestSide >= _hdPadLandscapeMinShortestSide &&
-        size.width > size.height &&
-        size.width >= _hdPadLandscapeMinWidth;
+    return size.width > size.height;
   }
 
   void _loadHdPadPanePreferences() {
