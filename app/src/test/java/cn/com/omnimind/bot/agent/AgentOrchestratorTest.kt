@@ -147,6 +147,68 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    fun lengthFinishReasonContinuesAndPublishesCombinedFinalText() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(
+                    content = "第一段还没说完",
+                    finishReason = "length"
+                ),
+                assistantTurn(
+                    content = "，后续完成。",
+                    finishReason = "stop"
+                )
+            )
+        )
+        val callback = RecordingCallback()
+
+        val result = createOrchestrator(llmClient, FakeToolExecutor()).run(
+            AgentOrchestrator.Input(
+                callback = callback,
+                initialMessages = initialMessages("写一个长回复"),
+                executionEnv = FakeExecutionEnvironment("写一个长回复")
+            )
+        )
+
+        assertEquals(2, llmClient.requests.size)
+        assertEquals("user", llmClient.requests[1].messages.last().role)
+        assertTrue(
+            llmClient.requests[1].messages.last().contentText().contains("输出长度上限")
+        )
+        assertEquals("第一段还没说完，后续完成。", callback.finalChatMessages().last())
+        assertTrue(callback.chatMessages.any { it.first == "第一段还没说完" && !it.second })
+        assertTrue(callback.chatMessages.any { it.first == "第一段还没说完，后续完成。" && !it.second })
+        assertTrue(result is AgentResult.Success)
+        assertEquals("stop", (result as AgentResult.Success).response.finishReason)
+    }
+
+    @Test
+    fun lengthContinuationStopsAfterGuardLimit() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(content = "A", finishReason = "length"),
+                assistantTurn(content = "B", finishReason = "length"),
+                assistantTurn(content = "C", finishReason = "length"),
+                assistantTurn(content = "D", finishReason = "length")
+            )
+        )
+        val callback = RecordingCallback()
+
+        val result = createOrchestrator(llmClient, FakeToolExecutor()).run(
+            AgentOrchestrator.Input(
+                callback = callback,
+                initialMessages = initialMessages("持续输出"),
+                executionEnv = FakeExecutionEnvironment("持续输出")
+            )
+        )
+
+        assertEquals(4, llmClient.requests.size)
+        assertEquals("ABCD", callback.finalChatMessages().last())
+        assertTrue(result is AgentResult.Success)
+        assertEquals("length", (result as AgentResult.Success).response.finishReason)
+    }
+
+    @Test
     fun reasoningEffortIsForwardedIntoModelRequests() = runBlocking {
         val llmClient = FakeLlmClient(
             turns = listOf(
@@ -471,7 +533,8 @@ class AgentOrchestratorTest {
         toolCalls: List<AssistantToolCall> = emptyList(),
         promptTokens: Int? = null,
         prefillTokensPerSecond: Double? = null,
-        decodeTokensPerSecond: Double? = null
+        decodeTokensPerSecond: Double? = null,
+        finishReason: String? = null
     ): ChatCompletionTurn {
         return ChatCompletionTurn(
             message = ChatCompletionMessage(
@@ -479,6 +542,7 @@ class AgentOrchestratorTest {
                 content = if (content.isBlank()) null else JsonPrimitive(content),
                 toolCalls = toolCalls.ifEmpty { null }
             ),
+            finishReason = finishReason,
             usage =
                 if (
                     promptTokens == null &&
