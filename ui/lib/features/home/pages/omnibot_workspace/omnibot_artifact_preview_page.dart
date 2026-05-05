@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:ui/services/assists_core_service.dart';
@@ -684,6 +685,7 @@ Future<void> showOmnibotArtifactPreviewSheet(
     context: context,
     useRootNavigator: true,
     isScrollControlled: true,
+    isDismissible: true,
     enableDrag: false,
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: 0.28),
@@ -734,74 +736,68 @@ class _OmnibotArtifactPreviewSheetFrameState
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final mediaQuery = MediaQuery.of(context);
+    final availableHeight = math.max(
+      320.0,
+      mediaQuery.size.height -
+          mediaQuery.padding.top -
+          mediaQuery.viewInsets.bottom,
+    );
+    final heightFactor =
+        _heightFactor ?? _initialHeightFactor(mediaQuery.size.height);
     return SafeArea(
       top: false,
       child: AnimatedPadding(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
         padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final availableHeight = constraints.maxHeight.isFinite
-                ? constraints.maxHeight
-                : mediaQuery.size.height;
-            final heightFactor =
-                _heightFactor ?? _initialHeightFactor(mediaQuery.size.height);
-            return Align(
-              alignment: Alignment.bottomCenter,
-              child: SizedBox(
-                height: availableHeight * heightFactor,
-                width: double.infinity,
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(24),
-                  ),
-                  child: Material(
-                    color: palette.pageBackground,
-                    child: Column(
-                      children: [
-                        GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onVerticalDragUpdate: (details) =>
-                              _handleDragUpdate(details, availableHeight),
-                          child: SizedBox(
-                            height: 22,
-                            width: double.infinity,
-                            child: Center(
-                              child: Container(
-                                width: 42,
-                                height: 4,
-                                decoration: BoxDecoration(
-                                  color: palette.textSecondary.withValues(
-                                    alpha: 0.28,
-                                  ),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              ),
+        child: SizedBox(
+          height: availableHeight * heightFactor,
+          width: double.infinity,
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: Material(
+              color: palette.pageBackground,
+              child: Column(
+                children: [
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onVerticalDragUpdate: (details) =>
+                        _handleDragUpdate(details, availableHeight),
+                    child: SizedBox(
+                      height: 22,
+                      width: double.infinity,
+                      child: Center(
+                        child: Container(
+                          width: 42,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: palette.textSecondary.withValues(
+                              alpha: 0.28,
                             ),
+                            borderRadius: BorderRadius.circular(999),
                           ),
                         ),
-                        Expanded(
-                          child: OmnibotArtifactPreviewPage(
-                            path: widget.metadata.path,
-                            uri: widget.metadata.uri,
-                            title: widget.metadata.title,
-                            previewKind: widget.metadata.previewKind,
-                            mimeType: widget.metadata.mimeType,
-                            shellPath: widget.metadata.shellPath,
-                            exists: widget.metadata.exists,
-                            showPathBar: false,
-                            appBarPrimary: false,
-                            showLeading: false,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
+                  Expanded(
+                    child: OmnibotArtifactPreviewPage(
+                      path: widget.metadata.path,
+                      uri: widget.metadata.uri,
+                      title: widget.metadata.title,
+                      previewKind: widget.metadata.previewKind,
+                      mimeType: widget.metadata.mimeType,
+                      shellPath: widget.metadata.shellPath,
+                      exists: widget.metadata.exists,
+                      showPathBar: false,
+                      appBarPrimary: false,
+                      showLeading: false,
+                    ),
+                  ),
+                ],
               ),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );
