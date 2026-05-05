@@ -98,6 +98,7 @@
         <activity
             android:name=".activity.LauncherActivity"
             android:exported="true"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.OmnibotApp.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -111,6 +112,7 @@
             android:exported="true"
             android:label="@string/omni_app_name"
             android:launchMode="singleTask"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.OmnibotApp.Splash" />
 
         <activity
