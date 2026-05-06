@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
 class CodexAppServerManager private constructor(
@@ -102,6 +103,8 @@ class CodexAppServerManager private constructor(
                 args,
                 "collaborationModes"
             )
+            "config/local/read" -> readLocalConfig()
+            "config/local/write" -> writeLocalConfig(args)
             "turn/start" -> startTurn(args)
             "turn/steer" -> steerTurn(args)
             "turn/interrupt" -> interruptTurn(args)
@@ -339,6 +342,88 @@ class CodexAppServerManager private constructor(
             ?: throw IllegalArgumentException("response is required")
         ensureConnectedSession().sendResponse(requestId, result)
         return mapOf("ok" to true)
+    }
+
+    private suspend fun readLocalConfig(): Map<String, Any?> {
+        val command = """
+            mkdir -p ${shellQuote(CodexAppServerDefaults.CODEX_HOME)}
+            printf '__OMNI_CODEX_CONFIG_START__\n'
+            if [ -f ${shellQuote("${CodexAppServerDefaults.CODEX_HOME}/config.toml")} ]; then
+              cat ${shellQuote("${CodexAppServerDefaults.CODEX_HOME}/config.toml")}
+            fi
+            printf '\n__OMNI_CODEX_CONFIG_END__\n'
+            printf '__OMNI_CODEX_AUTH_START__\n'
+            if [ -f ${shellQuote("${CodexAppServerDefaults.CODEX_HOME}/auth.json")} ]; then
+              cat ${shellQuote("${CodexAppServerDefaults.CODEX_HOME}/auth.json")}
+            fi
+            printf '\n__OMNI_CODEX_AUTH_END__\n'
+        """.trimIndent()
+        val result = TerminalManager.getInstance(appContext).executeHiddenCommand(
+            command = command,
+            executorKey = "codex-config-read",
+            timeoutMs = 30_000L
+        )
+        if (!result.isOk || result.exitCode != 0) {
+            throw IllegalStateException(
+                result.error.ifBlank { result.rawOutputPreview.ifBlank { "Failed to read Codex config." } }
+            )
+        }
+
+        val configToml = extractMarkedBlock(
+            result.output,
+            "__OMNI_CODEX_CONFIG_START__",
+            "__OMNI_CODEX_CONFIG_END__"
+        )
+        val authJson = extractMarkedBlock(
+            result.output,
+            "__OMNI_CODEX_AUTH_START__",
+            "__OMNI_CODEX_AUTH_END__"
+        )
+        return buildCodexLocalConfigPayload(
+            model = extractTomlString(configToml, "model").orEmpty(),
+            baseUrl = extractTomlString(configToml, "base_url").orEmpty(),
+            apiKey = extractOpenAiApiKey(authJson).orEmpty()
+        )
+    }
+
+    private suspend fun writeLocalConfig(args: Map<String, Any?>): Map<String, Any?> {
+        val baseUrl = args.stringValue("baseUrl")
+            ?: throw IllegalArgumentException("baseUrl is required")
+        val model = args.stringValue("model")
+            ?: throw IllegalArgumentException("model is required")
+        val apiKey = args.stringValue("apiKey")
+            ?: throw IllegalArgumentException("OPENAI_API_KEY is required")
+
+        val configToml = buildCodexConfigToml(baseUrl = baseUrl, model = model)
+        val authJson = JSONObject()
+            .put("OPENAI_API_KEY", apiKey)
+            .toString(4) + "\n"
+        val configPath = "${CodexAppServerDefaults.CODEX_HOME}/config.toml"
+        val authPath = "${CodexAppServerDefaults.CODEX_HOME}/auth.json"
+        val command = """
+            set -eu
+            mkdir -p ${shellQuote(CodexAppServerDefaults.CODEX_HOME)}
+            umask 077
+            printf %s ${shellQuote(configToml)} > ${shellQuote(configPath)}
+            printf %s ${shellQuote(authJson)} > ${shellQuote(authPath)}
+            chmod 600 ${shellQuote(configPath)} ${shellQuote(authPath)}
+            printf '__OMNI_CODEX_WRITE_OK__\n'
+        """.trimIndent()
+        val result = TerminalManager.getInstance(appContext).executeHiddenCommand(
+            command = command,
+            executorKey = "codex-config-write",
+            timeoutMs = 30_000L
+        )
+        if (!result.isOk || result.exitCode != 0) {
+            throw IllegalStateException(
+                result.error.ifBlank { result.rawOutputPreview.ifBlank { "Failed to write Codex config." } }
+            )
+        }
+        return buildCodexLocalConfigPayload(
+            model = model,
+            baseUrl = baseUrl,
+            apiKey = apiKey
+        )
     }
 
     private fun buildTurnStartParams(
@@ -681,6 +766,116 @@ internal fun addCodexOptionalRunParams(
     args["effort"]?.let { params["effort"] = it }
     args["collaborationMode"]?.let { params["collaborationMode"] = it }
     args["serviceTier"]?.let { params["serviceTier"] = it }
+}
+
+private fun buildCodexLocalConfigPayload(
+    model: String,
+    baseUrl: String,
+    apiKey: String
+): Map<String, Any?> {
+    return linkedMapOf(
+        "codexHome" to CodexAppServerDefaults.CODEX_HOME,
+        "model" to model,
+        "baseUrl" to baseUrl,
+        "apiKey" to apiKey
+    )
+}
+
+private fun buildCodexConfigToml(baseUrl: String, model: String): String {
+    return """
+        model_provider = "omnimind"
+        model = ${tomlString(model)}
+        model_reasoning_effort = "xhigh"
+        disable_response_storage = true
+
+        [model_providers.omnimind]
+        name = "omnimind"
+        base_url = ${tomlString(baseUrl)}
+        wire_api = "responses"
+        requires_openai_auth = true
+    """.trimIndent() + "\n"
+}
+
+private fun extractMarkedBlock(source: String, startMarker: String, endMarker: String): String {
+    val start = source.indexOf(startMarker)
+    if (start < 0) return ""
+    val bodyStart = start + startMarker.length
+    val end = source.indexOf(endMarker, bodyStart)
+    if (end < 0) return ""
+    return source.substring(bodyStart, end).trim()
+}
+
+private fun extractTomlString(source: String, key: String): String? {
+    if (source.isBlank()) return null
+    val escapedKey = Regex.escape(key)
+    val pattern = Regex(
+        pattern = """(?m)^\s*$escapedKey\s*=\s*"((?:\\.|[^"\\])*)"\s*(?:#.*)?$"""
+    )
+    return pattern.find(source)?.groupValues?.getOrNull(1)?.let(::unescapeTomlBasicString)
+}
+
+private fun extractOpenAiApiKey(source: String): String? {
+    val trimmed = source.trim()
+    if (trimmed.isEmpty()) return null
+    return runCatching {
+        JSONObject(trimmed).optString("OPENAI_API_KEY").trim().takeIf { it.isNotEmpty() }
+    }.getOrNull()
+}
+
+private fun tomlString(value: String): String {
+    return buildString {
+        append('"')
+        value.forEach { char ->
+            when (char) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\b' -> append("\\b")
+                '\t' -> append("\\t")
+                '\n' -> append("\\n")
+                '\u000C' -> append("\\f")
+                '\r' -> append("\\r")
+                else -> {
+                    if (char.code < 0x20) {
+                        append("\\u")
+                        append(char.code.toString(16).padStart(4, '0'))
+                    } else {
+                        append(char)
+                    }
+                }
+            }
+        }
+        append('"')
+    }
+}
+
+private fun unescapeTomlBasicString(value: String): String {
+    val result = StringBuilder(value.length)
+    var index = 0
+    while (index < value.length) {
+        val char = value[index]
+        if (char != '\\' || index == value.lastIndex) {
+            result.append(char)
+            index += 1
+            continue
+        }
+        val escaped = value[index + 1]
+        when (escaped) {
+            'b' -> result.append('\b')
+            't' -> result.append('\t')
+            'n' -> result.append('\n')
+            'f' -> result.append('\u000C')
+            'r' -> result.append('\r')
+            '"' -> result.append('"')
+            '\\' -> result.append('\\')
+            else -> result.append(escaped)
+        }
+        index += 2
+    }
+    return result.toString()
+}
+
+private fun shellQuote(value: String): String {
+    return "'" + value.replace("'", "'\"'\"'") + "'"
 }
 
 private fun Map<String, Any?>.stringValue(key: String): String? {

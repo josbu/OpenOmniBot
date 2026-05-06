@@ -21,8 +21,10 @@ class AboutPage extends StatefulWidget {
 }
 
 class _AboutPageState extends State<AboutPage> {
-  static const String _userGuideUrl =
+  static const String _zhUserGuideUrl =
       'https://omnimind-ai.github.io/OmniBot-Docs';
+  static const String _enUserGuideUrl =
+      'https://omnimind-ai.github.io/OmniBot-Docs/en/';
 
   String _version = '';
   AppUpdateStatus? _updateStatus;
@@ -213,11 +215,13 @@ class _AboutPageState extends State<AboutPage> {
   }
 
   void _openUserGuide() {
+    final isEnglish = Localizations.localeOf(context).languageCode == 'en';
     GoRouterManager.push(
       '/webview/webview_page',
       extra: <String, dynamic>{
-        'url': _userGuideUrl,
+        'url': isEnglish ? _enUserGuideUrl : _zhUserGuideUrl,
         'title': context.trLegacy('使用手册'),
+        'appBarBackClosesPage': true,
       },
     );
   }

@@ -36,6 +36,30 @@ class CodexStatus {
   static const disconnected = CodexStatus(connected: false, ready: false);
 }
 
+class CodexLocalConfig {
+  const CodexLocalConfig({
+    required this.baseUrl,
+    required this.model,
+    required this.apiKey,
+    this.codexHome,
+  });
+
+  final String baseUrl;
+  final String model;
+  final String apiKey;
+  final String? codexHome;
+
+  factory CodexLocalConfig.fromMap(Map<dynamic, dynamic>? map) {
+    final source = map ?? const <dynamic, dynamic>{};
+    return CodexLocalConfig(
+      baseUrl: _stringOrNull(source['baseUrl']) ?? '',
+      model: _stringOrNull(source['model']) ?? '',
+      apiKey: _stringOrNull(source['apiKey']) ?? '',
+      codexHome: _stringOrNull(source['codexHome']),
+    );
+  }
+}
+
 class CodexAppServerService {
   CodexAppServerService._();
 
@@ -211,6 +235,24 @@ class CodexAppServerService {
 
   static Future<Map<String, dynamic>> readConfig() {
     return _invokeMap('config/read');
+  }
+
+  static Future<CodexLocalConfig> readLocalConfig() async {
+    final result = await _invokeMap('config/local/read');
+    return CodexLocalConfig.fromMap(result);
+  }
+
+  static Future<CodexLocalConfig> writeLocalConfig({
+    required String baseUrl,
+    required String model,
+    required String apiKey,
+  }) async {
+    final result = await _invokeMap('config/local/write', {
+      'baseUrl': baseUrl.trim(),
+      'model': model.trim(),
+      'apiKey': apiKey.trim(),
+    });
+    return CodexLocalConfig.fromMap(result);
   }
 
   static Future<Map<String, dynamic>> steerTurn({
