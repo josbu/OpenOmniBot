@@ -1,11 +1,13 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:ui/widgets/common_app_bar.dart';
-import 'package:webview_flutter/webview_flutter.dart';
-import 'package:ui/utils/ui.dart';
 import 'package:dio/dio.dart';
 import 'package:gal/gal.dart';
-import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:ui/utils/ui.dart';
+import 'package:ui/widgets/common_app_bar.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 class WebViewPage extends StatefulWidget {
@@ -15,6 +17,7 @@ class WebViewPage extends StatefulWidget {
   final bool enableJavaScript;
   final bool enableZoom;
   final bool showRefreshButton;
+  final bool appBarBackClosesPage;
 
   const WebViewPage({
     super.key,
@@ -24,6 +27,7 @@ class WebViewPage extends StatefulWidget {
     this.enableJavaScript = true,
     this.enableZoom = true,
     this.showRefreshButton = false,
+    this.appBarBackClosesPage = false,
   });
 
   @override
@@ -266,6 +270,14 @@ class _WebViewPageState extends State<WebViewPage> {
     }
   }
 
+  void _handleAppBarBackPress() {
+    if (widget.appBarBackClosesPage) {
+      Navigator.of(context).pop();
+      return;
+    }
+    unawaited(_handleBackPress());
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -279,7 +291,7 @@ class _WebViewPageState extends State<WebViewPage> {
             ? CommonAppBar(
                 primary: true,
                 title: widget.title ?? '网页浏览',
-                onBackPressed: _handleBackPress,
+                onBackPressed: _handleAppBarBackPress,
                 trailing: widget.showRefreshButton
                     ? IconButton(
                         icon: const Icon(Icons.refresh),

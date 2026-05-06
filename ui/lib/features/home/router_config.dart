@@ -229,6 +229,7 @@ List<GoRoute> homeRoutes = [
         enableJavaScript: params?['enableJavaScript'] ?? true,
         enableZoom: params?['enableZoom'] ?? true,
         showRefreshButton: params?['showRefreshButton'] ?? false,
+        appBarBackClosesPage: params?['appBarBackClosesPage'] ?? false,
       );
     },
   ),
