@@ -98,6 +98,7 @@ class App : BaseApplication() {
         Res.application = this
 
         MMKV.initialize(this)
+        setupUncaughtExceptionHandler()
 
         DatabaseHelper.init(this)
         LocalModelFeatureInstaller.install(this)
@@ -144,6 +145,28 @@ class App : BaseApplication() {
             "AppStartup",
             "App onCreate total cost: ${System.currentTimeMillis() - appStartTime}ms"
         )
+    }
+
+    private fun setupUncaughtExceptionHandler() {
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                OmniLog.storeCrashLog(
+                    tag = "UncaughtException",
+                    message = "Thread: ${thread.name}",
+                    throwable = throwable,
+                )
+            } catch (_: Throwable) {
+                // Preserve the original crash path even if crash-log persistence fails.
+            } finally {
+                if (defaultHandler != null) {
+                    defaultHandler.uncaughtException(thread, throwable)
+                } else {
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                    kotlin.system.exitProcess(10)
+                }
+            }
+        }
     }
 
     fun initSDKsAfterPrivacyConsent() {
