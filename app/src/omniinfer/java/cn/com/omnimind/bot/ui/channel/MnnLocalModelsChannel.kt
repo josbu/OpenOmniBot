@@ -597,7 +597,25 @@ class MnnLocalModelsChannel {
 
             "stopApiService" -> result.success(OmniInferLiteRtModelsManager.stopApiService())
 
-            "startDownload", "pauseDownload" -> result.success(false)
+            "startDownload" -> {
+                val modelId = call.argument<String>("modelId")
+                if (modelId.isNullOrBlank()) {
+                    result.error(ERROR_CODE, "modelId is required", null)
+                } else {
+                    OmniInferLiteRtModelsManager.startDownload(modelId)
+                    result.success(true)
+                }
+            }
+
+            "pauseDownload" -> {
+                val modelId = call.argument<String>("modelId")
+                if (modelId.isNullOrBlank()) {
+                    result.error(ERROR_CODE, "modelId is required", null)
+                } else {
+                    OmniInferLiteRtModelsManager.pauseDownload(modelId)
+                    result.success(true)
+                }
+            }
 
             "deleteModel" -> runSuspend(result) {
                 val modelId = call.argument<String>("modelId") ?: error("modelId is required")
