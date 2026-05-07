@@ -152,6 +152,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   List<ModelProviderProfileSummary> _modelProviderProfiles = const [];
   Map<String, List<ProviderModelOption>> _modelOptionsByProfileId = const {};
   List<SceneCatalogItem> _sceneCatalog = const [];
+  int _dispatchSceneModelSelectionSerial = 0;
   ConversationModelOverride? _conversationModelOverride;
   _ChatModelOverrideSelection? _pendingConversationModelOverride;
   String? _conversationReasoningEffort;
@@ -636,7 +637,30 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   bool get _isPureChatToggleLocked => !_canTogglePureChatMode;
 
+  bool get _isOmniInferLocalModelSelected {
+    final selection = _activeDispatchSceneSelection;
+    return localModelFeature.isBuiltinLocalProvider(
+      selection?.providerProfileId,
+    );
+  }
+
+  bool get _isLocalModelPureChatLocked =>
+      _activeMode == ChatPageMode.normal &&
+      _isPureChatSelected &&
+      _isOmniInferLocalModelSelected;
+
+  void _showLocalModelPureChatLockToast() {
+    showToast(
+      LegacyTextLocalizer.localize('当前已选择本地模型，请开启新对话后再切换到其他模式'),
+      type: ToastType.warning,
+    );
+  }
+
   Future<void> _handleAgentModeShortcutTap() async {
+    if (_isLocalModelPureChatLocked) {
+      _showLocalModelPureChatLockToast();
+      return;
+    }
     if (_activeMode == ChatPageMode.normal && !_isPureChatSelected) {
       return;
     }
@@ -676,6 +700,11 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     final nextMode = _isPureChatSelected
         ? ConversationMode.normal
         : ConversationMode.chatOnly;
+    if (nextMode != ConversationMode.chatOnly &&
+        _isLocalModelPureChatLocked) {
+      _showLocalModelPureChatLockToast();
+      return;
+    }
     final baseTarget =
         _resolvedThreadTarget ??
         ConversationThreadTarget.newConversation(

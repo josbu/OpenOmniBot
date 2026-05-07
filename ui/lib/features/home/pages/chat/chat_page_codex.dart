@@ -48,6 +48,10 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       await _leaveCodexMode();
       return;
     }
+    if (_isLocalModelPureChatLocked) {
+      _showLocalModelPureChatLockToast();
+      return;
+    }
     setState(() {
       _isCodexStatusLoading = true;
     });
