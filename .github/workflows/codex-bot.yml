@@ -473,23 +473,62 @@ jobs:
             } >&2
             exit 1
           fi
+          if [[ "$(id -un)" != "$CODEX_RUNNER_USER" ]]; then
+            {
+              echo "This workflow is running as '$(id -un)', but CODEX_RUNNER_USER is '$CODEX_RUNNER_USER'."
+              echo "To avoid password prompts and sudo requirements, run the GitHub Actions runner service as '$CODEX_RUNNER_USER' or set CODEX_RUNNER_USER to the current runner account."
+            } >&2
+            exit 1
+          fi
           git config core.fileMode false
           chmod -R a+rwX "$GITHUB_WORKSPACE"
 
       - name: Run Codex
         id: run_codex
-        uses: openai/codex-action@v1
-        with:
-          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt-file: .codex/prompt.md
-          output-file: .codex/final.json
-          output-schema-file: .codex/result.schema.json
-          sandbox: ${{ needs.guard.outputs.sandbox }}
-          safety-strategy: unprivileged-user
-          codex-user: ${{ vars.CODEX_RUNNER_USER || 'cicd' }}
-          allow-users: "*"
-          model: ${{ vars.CODEX_MODEL }}
-          effort: ${{ vars.CODEX_REASONING_EFFORT }}
+        shell: bash
+        env:
+          CODEX_RUNNER_USER: ${{ vars.CODEX_RUNNER_USER || 'cicd' }}
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
+          CODEX_REASONING_EFFORT: ${{ vars.CODEX_REASONING_EFFORT }}
+          CODEX_SANDBOX: ${{ needs.guard.outputs.sandbox }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          if ! CODEX_BIN="$(command -v codex)"; then
+            echo "codex CLI was not found on PATH for the runner user. Install Codex on the self-hosted runner or add it to PATH." >&2
+            exit 1
+          fi
+          "$CODEX_BIN" --version
+
+          args=(
+            exec
+            --cd "$GITHUB_WORKSPACE"
+            --sandbox "$CODEX_SANDBOX"
+            --output-schema "$GITHUB_WORKSPACE/.codex/result.schema.json"
+            --output-last-message "$GITHUB_WORKSPACE/.codex/final.json"
+          )
+
+          if [[ -n "${CODEX_MODEL:-}" ]]; then
+            args+=(--model "$CODEX_MODEL")
+          fi
+
+          if [[ -n "${CODEX_REASONING_EFFORT:-}" ]]; then
+            args+=(-c "model_reasoning_effort=\"${CODEX_REASONING_EFFORT}\"")
+          fi
+
+          args+=(-)
+
+          "$CODEX_BIN" "${args[@]}" < "$GITHUB_WORKSPACE/.codex/prompt.md"
+
+          delimiter="codex_final_$(date +%s)_$RANDOM"
+          {
+            echo "final-message<<$delimiter"
+            if [[ -f "$GITHUB_WORKSPACE/.codex/final.json" ]]; then
+              cat "$GITHUB_WORKSPACE/.codex/final.json"
+            fi
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Prepare Codex artifacts
         id: prepare
