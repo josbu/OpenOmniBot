@@ -17,6 +17,7 @@ import com.rk.libcommons.localLibDir
 import com.rk.settings.Settings
 import com.rk.terminal.App
 import com.rk.terminal.runtime.EmbeddedRuntimeInstaller
+import com.rk.terminal.runtime.AlpineRepositoryManager
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
@@ -399,6 +400,7 @@ class TerminalManager private constructor(
             "PKG" to context.packageName,
             "PKG_PATH" to context.applicationInfo.sourceDir,
             "OMNIBOT_HOST_WORKSPACE" to hostWorkspaceDir.absolutePath,
+            "OMNIBOT_ALPINE_APK_REPOSITORY_BASE" to AlpineRepositoryManager.selectedBaseUrl(),
             "PROOT_TMP_DIR" to App.getTempDir().resolve(sessionId).apply { mkdirs() }.absolutePath,
             "TMPDIR" to App.getTempDir().absolutePath
         )
