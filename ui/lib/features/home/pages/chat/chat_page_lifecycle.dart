@@ -1,10 +1,16 @@
 part of 'chat_page.dart';
 
-ConversationThreadTarget _newCodexThreadTarget() {
+ConversationThreadTarget _newThreadTargetForConversationMode(
+  ConversationMode mode,
+) {
   return ConversationThreadTarget.newConversation(
-    mode: ConversationMode.codex,
+    mode: mode,
     requestKey: DateTime.now().microsecondsSinceEpoch.toString(),
   );
+}
+
+ConversationThreadTarget _newCodexThreadTarget() {
+  return _newThreadTargetForConversationMode(ConversationMode.codex);
 }
 
 mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
@@ -220,6 +226,10 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     }
     final targetMode = _pageModeForConversationMode(effectiveTarget.mode);
     _storeDraftForActiveConversationMode();
+    if (effectiveTarget.isNewConversation) {
+      _draftMessageByMode[targetMode] = '';
+      _pendingAttachmentsByMode[targetMode]?.clear();
+    }
     _cancelNormalSurfaceModelReveal();
     if (isStaleRequest()) return;
     setState(() {
