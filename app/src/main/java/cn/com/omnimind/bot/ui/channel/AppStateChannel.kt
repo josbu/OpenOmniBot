@@ -7,6 +7,7 @@ import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.activity.MainActivity
 import cn.com.omnimind.bot.activity.StartupThemeResolver
 import cn.com.omnimind.bot.share.SharedOpenDraftStore
+import cn.com.omnimind.bot.share.SharedOpenPreferenceStore
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -80,6 +81,23 @@ class AppStateChannel {
                 }
                 SharedOpenDraftStore.clearPending(appContext)
                 result.success(true)
+            }
+            "getSharedOpenMode" -> {
+                val appContext = context?.applicationContext
+                if (appContext == null) {
+                    result.error("INVALID_CONTEXT", "Context is null", null)
+                    return
+                }
+                result.success(SharedOpenPreferenceStore.getOpenMode(appContext))
+            }
+            "setSharedOpenMode" -> {
+                val appContext = context?.applicationContext
+                val mode = call.argument<String>("mode")
+                if (appContext == null) {
+                    result.error("INVALID_CONTEXT", "Context is null", null)
+                    return
+                }
+                result.success(SharedOpenPreferenceStore.setOpenMode(appContext, mode.orEmpty()))
             }
             "applyLanguagePreference" -> {
                 val appContext = context?.applicationContext

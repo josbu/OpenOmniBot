@@ -75,6 +75,8 @@ class ChatInputAttachment {
   final int? size;
   final String? mimeType;
   final bool isImage;
+  final String? promptPath;
+  final bool sendToModel;
 
   const ChatInputAttachment({
     required this.id,
@@ -83,6 +85,8 @@ class ChatInputAttachment {
     this.size,
     this.mimeType,
     this.isImage = false,
+    this.promptPath,
+    this.sendToModel = true,
   });
 
   Map<String, dynamic> toMap() {
@@ -93,6 +97,9 @@ class ChatInputAttachment {
       if (size != null) 'size': size,
       if (mimeType != null) 'mimeType': mimeType,
       'isImage': isImage,
+      if ((promptPath ?? '').trim().isNotEmpty)
+        'promptPath': promptPath!.trim(),
+      if (!sendToModel) 'sendToModel': false,
     };
   }
 }

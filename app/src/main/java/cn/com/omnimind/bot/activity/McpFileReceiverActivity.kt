@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.mcp.McpFileInbox
+import cn.com.omnimind.bot.share.SharedOpenPreferenceStore
 import cn.com.omnimind.bot.share.SharedOpenDraftStore
 import cn.com.omnimind.bot.util.TaskCompletionNavigator
 import kotlinx.coroutines.Dispatchers
@@ -41,10 +42,20 @@ class McpFileReceiverActivity : ComponentActivity() {
         val sharedText = extractSharedText(intent)
         val uris = extractUris(intent)
         val mimeTypeHint = intent.type
+        val openMode = SharedOpenPreferenceStore.getOpenMode(this)
         if (uris.isEmpty() && sharedText.isNullOrBlank()) {
             OmniLog.w(TAG, "No share content found in intent: ${intent.action}")
             Toast.makeText(this, "未找到可分享的内容", Toast.LENGTH_SHORT).show()
             finish()
+            return
+        }
+
+        if (openMode == SharedOpenPreferenceStore.MODE_WORKSPACE && uris.isNotEmpty()) {
+            handleWorkspaceDraftShare(
+                sharedText = sharedText,
+                uris = uris,
+                mimeTypeHint = mimeTypeHint,
+            )
             return
         }
 
@@ -92,6 +103,44 @@ class McpFileReceiverActivity : ComponentActivity() {
                     Toast.makeText(
                         this@McpFileReceiverActivity,
                         "已填入新对话，请确认后发送",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        this@McpFileReceiverActivity,
+                        "分享内容处理失败",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                finish()
+            }
+        }
+    }
+
+    private fun handleWorkspaceDraftShare(
+        sharedText: String?,
+        uris: List<Uri>,
+        mimeTypeHint: String?,
+    ) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val draft = SharedOpenDraftStore.storeWorkspaceDraft(
+                context = this@McpFileReceiverActivity,
+                text = sharedText,
+                uris = uris,
+                mimeTypeHint = mimeTypeHint,
+            )
+            withContext(Dispatchers.Main) {
+                if (draft != null) {
+                    val route =
+                        "/home/chat?conversationId=new&mode=normal&requestKey=${Uri.encode(draft.requestKey)}"
+                    TaskCompletionNavigator.navigateToMainRoute(
+                        context = this@McpFileReceiverActivity,
+                        route = route,
+                        needClear = false,
+                    )
+                    Toast.makeText(
+                        this@McpFileReceiverActivity,
+                        "已添加到 Workspace，请确认后发送",
                         Toast.LENGTH_SHORT,
                     ).show()
                 } else {

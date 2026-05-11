@@ -58,6 +58,35 @@ class AppStateService {
     }
   }
 
+  static Future<String> getSharedOpenMode() async {
+    try {
+      final result = await _channel.invokeMethod<String>('getSharedOpenMode');
+      return _normalizeSharedOpenMode(result);
+    } catch (e) {
+      debugPrint('⚠️ Failed to get shared open mode: $e');
+      return 'default';
+    }
+  }
+
+  static Future<String> setSharedOpenMode(String mode) async {
+    try {
+      final result = await _channel.invokeMethod<String>('setSharedOpenMode', {
+        'mode': mode,
+      });
+      return _normalizeSharedOpenMode(result);
+    } catch (e) {
+      debugPrint('⚠️ Failed to set shared open mode: $e');
+      return _normalizeSharedOpenMode(mode);
+    }
+  }
+
+  static String _normalizeSharedOpenMode(String? mode) {
+    return switch (mode?.trim()) {
+      'workspace' => 'workspace',
+      _ => 'default',
+    };
+  }
+
   static Future<bool> applyLanguagePreference() async {
     try {
       final result = await _channel.invokeMethod<dynamic>(
