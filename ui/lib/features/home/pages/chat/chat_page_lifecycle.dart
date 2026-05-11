@@ -870,6 +870,8 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
             size: item.size,
             mimeType: item.mimeType,
             isImage: item.isImage,
+            promptPath: item.promptPath,
+            sendToModel: item.sendToModel,
           ),
         )
         .toList();

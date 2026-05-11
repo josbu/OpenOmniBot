@@ -15,7 +15,6 @@ import 'package:ui/services/storage_service.dart';
 import 'package:ui/services/workspace_memory_service.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
-import 'package:ui/utils/cache_util.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 
@@ -27,9 +26,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  bool vibrationEnabled = true;
   bool hideFromRecentsEnabled = false;
-  bool _autoBackToChatAfterTaskEnabled = true;
   bool _mcpEnabled = false;
   bool _mcpLoaded = false;
   bool _mcpBusy = false;
@@ -41,15 +38,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
-    _autoBackToChatAfterTaskEnabled =
-        StorageService.getBool(
-          StorageService.kAutoBackToChatAfterTaskKey,
-          defaultValue: true,
-        ) ??
-        true;
-    _loadVibrationState();
     _loadHideFromRecentsState();
-    _loadAutoBackToChatAfterTaskState();
     _loadMcpServerState();
     _loadWorkspaceMemoryState();
     _configChangedSubscription = AssistsMessageService
@@ -66,21 +55,6 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _configChangedSubscription?.cancel();
     super.dispose();
-  }
-
-  Future<void> _loadVibrationState() async {
-    try {
-      final enabled = await CacheUtil.getBool(
-        'app_vibrate',
-        defaultValue: true,
-      );
-      setState(() {
-        vibrationEnabled = enabled;
-      });
-      debugPrint('Vibration state loaded: $vibrationEnabled');
-    } catch (e) {
-      debugPrint('Error loading vibration state: $e');
-    }
   }
 
   Future<void> _loadHideFromRecentsState() async {
@@ -108,42 +82,6 @@ class _SettingsPageState extends State<SettingsPage> {
         hideFromRecentsEnabled = !value;
       });
       showToast(context.l10n.settingsHideRecentsFailed, type: ToastType.error);
-    }
-  }
-
-  Future<void> _loadAutoBackToChatAfterTaskState() async {
-    try {
-      final enabled = await StorageService.isAutoBackToChatAfterTaskEnabled();
-      if (!mounted) return;
-      if (_autoBackToChatAfterTaskEnabled == enabled) return;
-      setState(() {
-        _autoBackToChatAfterTaskEnabled = enabled;
-      });
-    } catch (e) {
-      debugPrint('Error loading auto back to chat setting: $e');
-    }
-  }
-
-  Future<void> _onAutoBackToChatAfterTaskChanged(bool value) async {
-    try {
-      await StorageService.setAutoBackToChatAfterTaskEnabled(value);
-      final synced =
-          await AssistsMessageService.setAutoBackToChatAfterTaskEnabled(value);
-      if (!synced) {
-        throw Exception('native_sync_failed');
-      }
-      if (!mounted) return;
-      setState(() {
-        _autoBackToChatAfterTaskEnabled = value;
-      });
-      showToast(
-        value
-            ? context.l10n.settingsAutoBackEnabledToast
-            : context.l10n.settingsAutoBackDisabledToast,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      showToast(context.l10n.settingsSaveFailed, type: ToastType.error);
     }
   }
 
@@ -439,14 +377,6 @@ class _SettingsPageState extends State<SettingsPage> {
         label: context.l10n.settingsSectionExperienceAppearance,
         items: [
           _SettingItem(
-            icon: Icons.alarm_outlined,
-            title: context.l10n.settingsAlarmTitle,
-            subtitle: context.l10n.settingsAlarmSubtitle,
-            onTap: () {
-              GoRouterManager.push('/home/alarm_setting');
-            },
-          ),
-          _SettingItem(
             icon: Icons.wallpaper_outlined,
             title: context.l10n.settingsAppearanceTitle,
             subtitle: context.l10n.settingsAppearanceSubtitle,
@@ -455,29 +385,13 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
           _SettingItem(
-            icon: Icons.vibration,
-            iconSvg: 'assets/home/vibration_icon.svg',
-            title: context.l10n.settingsVibrationTitle,
-            subtitle: context.l10n.settingsVibrationSubtitle,
-            trailing: _buildSwitchTrailing(
-              value: vibrationEnabled,
-              onToggle: (val) async {
-                await CacheUtil.cacheBool('app_vibrate', val);
-                setState(() {
-                  vibrationEnabled = val;
-                });
-              },
-            ),
-          ),
-          _SettingItem(
-            icon: Icons.chat_outlined,
-            iconSvg: 'assets/home/auto_back_chat_setting_icon.svg',
-            title: context.l10n.settingsAutoBackTitle,
-            subtitle: context.l10n.settingsAutoBackSubtitle,
-            trailing: _buildSwitchTrailing(
-              value: _autoBackToChatAfterTaskEnabled,
-              onToggle: _onAutoBackToChatAfterTaskChanged,
-            ),
+            icon: Icons.more_horiz_rounded,
+            iconSvg: 'assets/home/misc_blocks_setting_icon.svg',
+            title: context.trLegacy('杂项'),
+            subtitle: context.trLegacy('闹钟、振动、自动回聊天与打开方式'),
+            onTap: () {
+              GoRouterManager.push('/home/experience_misc_setting');
+            },
           ),
         ],
       ),

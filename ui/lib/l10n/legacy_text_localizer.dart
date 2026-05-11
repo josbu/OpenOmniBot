@@ -33,6 +33,29 @@ class LegacyTextLocalizer {
     '闹钟设置': 'Alarm Settings',
     '振动反馈': 'Vibration Feedback',
     '任务完成后自动回聊天': 'Return to Chat After Tasks',
+    '杂项': 'Misc',
+    '闹钟、振动、自动回聊天与打开方式': 'Alarms, vibration, return-to-chat, and open behavior',
+    '使用小万打开': 'Open with Omnibot',
+    '使用小万打开 - 图片': 'Open with Omnibot - Images',
+    '使用小万打开 - 文件': 'Open with Omnibot - Files',
+    '分别设置图片和文件的打开方式': 'Configure image and file open behavior separately',
+    '图片': 'Images',
+    '文件': 'Files',
+    '复制到 workspace 并在提示词中发送文件路径':
+        'Copy to workspace and send file paths in the prompt',
+    '添加到 workspace，附加到对话，并在提示词中发送文件路径':
+        'Add to workspace, attach to chat, and send the file path in the prompt',
+    '存入 workspace 并发送路径': 'Save to workspace and send path',
+    '图片填入对话，其他文件走文件传输':
+        'Attach images to chat; send other files through file transfer',
+    '附加到对话输入框': 'Attach to chat input',
+    '照片等文件会直接附加到对话输入框':
+        'Photos and similar files are attached directly to the chat input',
+    '启动文件服务器生成局域网链接': 'Start file server and create a LAN link',
+    '生成局域网文件链接': 'Create a LAN file link',
+    '非照片文件会启动文件服务器并生成局域网链接':
+        'Non-photo files start the file server and create a LAN link',
+    '默认': 'Default',
     '陪伴权限授权': 'Companion App Permissions',
     '关于小万': 'About Omnibot',
     '背景来源': 'Background Source',
@@ -373,8 +396,7 @@ class LegacyTextLocalizer {
     '连接 OpenAI、Anthropic 或兼容的 API 服务':
         'Connect to OpenAI, Anthropic, or compatible APIs',
     '本地模型': 'Local Model',
-    '在设备上运行本地 AI，离线可用，隐私安全':
-        'Run local AI on your device, offline and private',
+    '在设备上运行本地 AI，离线可用，隐私安全': 'Run local AI on your device, offline and private',
     '继续': 'Continue',
     '跳过，稍后在设置中配置': 'Skip, configure later in Settings',
     '云 AI 服务配置': 'Cloud AI Setup',
@@ -396,11 +418,9 @@ class LegacyTextLocalizer {
     '数据完全留在设备上，不会发送到任何服务器':
         'Data stays entirely on your device, never sent to any server',
     '离线可用': 'Offline',
-    '无需网络连接，随时随地使用 AI 助手':
-        'No internet needed, use AI assistant anytime',
+    '无需网络连接，随时随地使用 AI 助手': 'No internet needed, use AI assistant anytime',
     '完全免费': 'Free',
-    '无需 API 费用或订阅，没有使用限制':
-        'No API costs or subscriptions, no usage limits',
+    '无需 API 费用或订阅，没有使用限制': 'No API costs or subscriptions, no usage limits',
     '局限性': 'Limitations',
     '性能受限': 'Limited Performance',
     '端侧模型较小，能力有限，回复质量不如云端模型':
@@ -411,8 +431,7 @@ class LegacyTextLocalizer {
     '下一步': 'Next',
     '下载本地模型': 'Download Local Model',
     '推荐模型': 'Recommended Model',
-    '根据你的设备推荐的轻量模型，适合日常对话':
-        'A lightweight model recommended for your device',
+    '根据你的设备推荐的轻量模型，适合日常对话': 'A lightweight model recommended for your device',
     '正在加载模型信息...': 'Loading model info...',
     '下载模型': 'Download Model',
     '暂停': 'Pause',

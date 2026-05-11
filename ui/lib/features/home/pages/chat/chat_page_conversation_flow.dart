@@ -386,9 +386,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     if (_isOmniInferLocalModelSelected &&
         activeConversationModeValue != ConversationMode.chatOnly) {
       showToast(
-        LegacyTextLocalizer.localize(
-          '本地模型仅支持纯聊天模式，请开启新的纯聊天对话后再使用本地模型',
-        ),
+        LegacyTextLocalizer.localize('本地模型仅支持纯聊天模式，请开启新的纯聊天对话后再使用本地模型'),
         type: ToastType.warning,
       );
       return;
@@ -797,6 +795,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       final normalized = raw
           .whereType<Map>()
           .map((item) => item.map((k, v) => MapEntry(k.toString(), v)))
+          .where(_attachmentShouldSendToModel)
           .toList();
       for (final item in normalized) {
         if (!_isImageAttachmentMap(item)) continue;
@@ -808,6 +807,13 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       return normalized;
     }
     return const [];
+  }
+
+  bool _attachmentShouldSendToModel(Map<String, dynamic> attachment) {
+    final raw = attachment['sendToModel'];
+    if (raw is bool) return raw;
+    if (raw is String) return raw.toLowerCase() != 'false';
+    return true;
   }
 
   List<Map<String, dynamic>> _latestUserAgentAttachments() {

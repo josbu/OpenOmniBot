@@ -889,6 +889,9 @@ internal object AgentConversationHistorySupport {
         val text = AgentTextSanitizer.sanitizeUtf16(content["text"]?.toString().orEmpty())
         val attachments = toListOfStringAnyMap(content["attachments"])
         val imageBlocks = attachments.mapNotNull { attachment ->
+            if (!shouldSendAttachmentToModel(attachment)) {
+                return@mapNotNull null
+            }
             val imageUrl = resolveImageAttachmentUrl(attachment)
             if (imageUrl.isBlank()) {
                 null
@@ -917,6 +920,14 @@ internal object AgentConversationHistorySupport {
         }
         blocks += imageBlocks
         return JsonArray(blocks)
+    }
+
+    private fun shouldSendAttachmentToModel(attachment: Map<String, Any?>): Boolean {
+        return when (val raw = attachment["sendToModel"]) {
+            is Boolean -> raw
+            is String -> !raw.equals("false", ignoreCase = true)
+            else -> true
+        }
     }
 
     private fun resolveImageAttachmentUrl(attachment: Map<String, Any?>): String {
