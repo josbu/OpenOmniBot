@@ -1,6 +1,6 @@
 # Omnibot App Update Worker
 
-Cloudflare Worker for public app update checks and authenticated release metadata management.
+Cloudflare Worker for public app update checks and authenticated release metadata management. Release metadata and aggregate check counters are stored in a KV namespace.
 
 ## Routes
 
@@ -20,9 +20,20 @@ Cloudflare Worker for public app update checks and authenticated release metadat
 
 ## Deploy
 
-Copy `wrangler.toml.example` to `wrangler.toml`, then configure the token:
+Create a KV namespace, bind it to the Worker as `APP_UPDATE_KV`, then configure the admin token.
+
+Dashboard binding:
+
+- Resource type: `KV 命名空间`
+- Variable name: `APP_UPDATE_KV`
+- KV namespace: the namespace created for app updates
+
+Wrangler deployment:
 
 ```bash
+wrangler kv namespace create APP_UPDATE_KV
+cp wrangler.toml.example wrangler.toml
+# Put the created namespace id in wrangler.toml.
 wrangler secret put ADMIN_TOKEN
 wrangler deploy
 ```

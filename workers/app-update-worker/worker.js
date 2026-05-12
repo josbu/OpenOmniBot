@@ -1,6 +1,7 @@
 const DEFAULT_GITHUB_REPO = "omnimind-ai/OpenOmniBot";
 const DEFAULT_CNB_REPO = "o.a/OpenOmniBot";
 const DEFAULT_EDITIONS = ["omniinfer", "standard"];
+const STATS_KEY = "stats";
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
   "cache-control": "no-store",
@@ -9,22 +10,6 @@ const JSON_HEADERS = {
 
 export default {
   async fetch(request, env) {
-    if (!env.APP_UPDATE_REGISTRY) {
-      return json({ ok: false, error: "APP_UPDATE_REGISTRY Durable Object binding is missing" }, 500);
-    }
-
-    const id = env.APP_UPDATE_REGISTRY.idFromName("global");
-    return env.APP_UPDATE_REGISTRY.get(id).fetch(request);
-  },
-};
-
-export class AppUpdateRegistry {
-  constructor(state, env) {
-    this.state = state;
-    this.env = env;
-  }
-
-  async fetch(request) {
     const url = new URL(request.url);
     const pathname = normalizePath(url.pathname);
 
@@ -44,37 +29,38 @@ export class AppUpdateRegistry {
         return json({
           ok: true,
           service: "omnibot-app-update-worker",
+          storage: "kv",
           routes: ["/updates", "/admin/releases", "/admin/releases/:tag", "/admin/stats"],
         });
       }
 
       if (request.method === "GET" && pathname === "/updates") {
-        return this.handleUpdateCheck(url);
+        return handleUpdateCheck(url, env);
       }
 
       if (pathname === "/admin/releases" && request.method === "GET") {
-        this.requireAdmin(request);
-        return this.handleListReleases();
+        requireAdmin(request, env);
+        return handleListReleases(env);
       }
 
       if (pathname === "/admin/releases" && request.method === "POST") {
-        this.requireAdmin(request);
-        return this.handleUpsertRelease(request);
+        requireAdmin(request, env);
+        return handleUpsertRelease(request, env);
       }
 
       if (pathname === "/admin/releases" && request.method === "DELETE") {
-        this.requireAdmin(request);
-        return this.handleDeleteRelease(url.searchParams.get("tag"));
+        requireAdmin(request, env);
+        return handleDeleteRelease(url.searchParams.get("tag"), env);
       }
 
       if (pathname.startsWith("/admin/releases/") && request.method === "DELETE") {
-        this.requireAdmin(request);
-        return this.handleDeleteRelease(decodeURIComponent(pathname.slice("/admin/releases/".length)));
+        requireAdmin(request, env);
+        return handleDeleteRelease(decodeURIComponent(pathname.slice("/admin/releases/".length)), env);
       }
 
       if (pathname === "/admin/stats" && request.method === "GET") {
-        this.requireAdmin(request);
-        return this.handleStats();
+        requireAdmin(request, env);
+        return handleStats(env);
       }
 
       return json({ ok: false, error: "Not found" }, 404);
@@ -82,147 +68,155 @@ export class AppUpdateRegistry {
       const status = Number.isInteger(error.status) ? error.status : 500;
       return json({ ok: false, error: error.message || "Internal error" }, status);
     }
+  },
+};
+
+async function handleUpdateCheck(url, env) {
+  const kv = requireKv(env);
+  const currentVersion = normalizeVersion(
+    url.searchParams.get("currentVersion") ||
+      url.searchParams.get("current_version") ||
+      url.searchParams.get("version") ||
+      "",
+  );
+  const includeBeta = parseBoolean(url.searchParams.get("includeBeta") || url.searchParams.get("include_beta"));
+  const edition = normalizeEdition(url.searchParams.get("edition"));
+  const source = normalizeSource(url.searchParams.get("source") || env.DEFAULT_SOURCE || "cnb");
+  const checkedAt = Date.now();
+
+  await recordCheck(kv, {
+    currentVersion: currentVersion || "unknown",
+    edition,
+    source,
+    checkedAt,
+  });
+
+  const releases = await loadReleases(kv);
+  const selected = selectLatestRelease(releases, includeBeta);
+  if (!selected) {
+    return json(emptyUpdateResponse({ currentVersion, checkedAt, edition, source }));
   }
 
-  async handleUpdateCheck(url) {
-    const currentVersion = normalizeVersion(
-      url.searchParams.get("currentVersion") ||
-        url.searchParams.get("current_version") ||
-        url.searchParams.get("version") ||
-        "",
-    );
-    const includeBeta = parseBoolean(url.searchParams.get("includeBeta") || url.searchParams.get("include_beta"));
-    const edition = normalizeEdition(url.searchParams.get("edition"));
-    const source = normalizeSource(url.searchParams.get("source") || this.env.DEFAULT_SOURCE || "cnb");
-    const checkedAt = Date.now();
+  const asset = selectPreferredApkAsset(selected.assets, edition);
+  const latestVersion = selected.version;
+  const hasUpdate = Boolean(asset) && compareVersions(latestVersion, currentVersion) > 0;
 
-    await this.recordCheck({
-      currentVersion: currentVersion || "unknown",
-      edition,
-      source,
-      checkedAt,
-    });
+  return json({
+    ok: true,
+    currentVersion,
+    latestVersion,
+    hasUpdate,
+    checkedAt,
+    publishedAt: selected.publishedAt || 0,
+    tag: selected.tag,
+    track: selected.track,
+    releaseUrl: selected.releaseUrl || "",
+    releaseNotes: selected.releaseNotes || "",
+    apkName: asset?.name || "",
+    apkDownloadUrl: asset ? assetDownloadUrl(asset, source) : "",
+    edition,
+    source,
+    assets: selected.assets.map(publicAsset),
+  });
+}
 
-    const releases = await this.loadReleases();
-    const selected = selectLatestRelease(releases, includeBeta);
-    if (!selected) {
-      return json(emptyUpdateResponse({ currentVersion, checkedAt, edition, source }));
-    }
+async function handleListReleases(env) {
+  const releases = await loadReleases(requireKv(env), { includeDrafts: true });
+  return json({ ok: true, releases });
+}
 
-    const asset = selectPreferredApkAsset(selected.assets, edition);
-    const latestVersion = selected.version;
-    const hasUpdate = Boolean(asset) && compareVersions(latestVersion, currentVersion) > 0;
+async function handleUpsertRelease(request, env) {
+  const kv = requireKv(env);
+  const body = await readJson(request);
+  const release = normalizeRelease(body, env);
+  await kv.put(releaseKey(release.tag), JSON.stringify(release));
+  return json({ ok: true, release });
+}
 
-    return json({
-      ok: true,
-      currentVersion,
-      latestVersion,
-      hasUpdate,
-      checkedAt,
-      publishedAt: selected.publishedAt || 0,
-      tag: selected.tag,
-      track: selected.track,
-      releaseUrl: selected.releaseUrl || "",
-      releaseNotes: selected.releaseNotes || "",
-      apkName: asset?.name || "",
-      apkDownloadUrl: asset ? assetDownloadUrl(asset, source) : "",
-      edition,
-      source,
-      assets: selected.assets.map(publicAsset),
-    });
+async function handleDeleteRelease(rawTag, env) {
+  const kv = requireKv(env);
+  const tag = normalizeTag(rawTag);
+  if (!tag) {
+    throw httpError(400, "tag is required");
   }
 
-  async handleListReleases() {
-    const releases = await this.loadReleases({ includeDrafts: true });
-    return json({ ok: true, releases });
+  const key = releaseKey(tag);
+  const existing = await kv.get(key);
+  const deleted = Boolean(existing);
+  if (deleted) {
+    await kv.delete(key);
+    await recordDeletedTag(kv);
   }
 
-  async handleUpsertRelease(request) {
-    const body = await readJson(request);
-    const release = normalizeRelease(body, this.env);
+  return json({ ok: true, tag, deleted });
+}
 
-    await this.state.storage.transaction(async (txn) => {
-      const index = (await txn.get("tag_index")) || [];
-      if (!index.includes(release.tag)) {
-        index.push(release.tag);
+async function handleStats(env) {
+  const stats = (await requireKv(env).get(STATS_KEY, "json")) || defaultStats();
+  return json({ ok: true, stats });
+}
+
+async function loadReleases(kv, { includeDrafts = false } = {}) {
+  const releases = [];
+  let cursor;
+
+  do {
+    const page = await kv.list({ prefix: "release:", cursor });
+    for (const key of page.keys) {
+      const release = await kv.get(key.name, "json");
+      if (release) {
+        releases.push(release);
       }
-      await txn.put("tag_index", index);
-      await txn.put(releaseKey(release.tag), release);
-    });
-
-    return json({ ok: true, release });
-  }
-
-  async handleDeleteRelease(rawTag) {
-    const tag = normalizeTag(rawTag);
-    if (!tag) {
-      throw httpError(400, "tag is required");
     }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
 
-    let deleted = false;
-    await this.state.storage.transaction(async (txn) => {
-      const key = releaseKey(tag);
-      const existing = await txn.get(key);
-      deleted = Boolean(existing);
-      await txn.delete(key);
-
-      const index = (await txn.get("tag_index")) || [];
-      await txn.put(
-        "tag_index",
-        index.filter((item) => item !== tag),
-      );
-
-      const stats = (await txn.get("stats")) || defaultStats();
-      stats.deletedTags = (stats.deletedTags || 0) + (deleted ? 1 : 0);
-      stats.lastDeletedAt = deleted ? Date.now() : stats.lastDeletedAt || 0;
-      await txn.put("stats", stats);
+  return releases
+    .filter((release) => includeDrafts || (!release.draft && release.track !== "unsupported"))
+    .sort((left, right) => {
+      const versionOrder = compareVersions(right.version, left.version);
+      if (versionOrder !== 0) return versionOrder;
+      return (right.publishedAt || 0) - (left.publishedAt || 0);
     });
+}
 
-    return json({ ok: true, tag, deleted });
+async function recordCheck(kv, { currentVersion, edition, source, checkedAt }) {
+  const day = new Date(checkedAt).toISOString().slice(0, 10);
+  const stats = (await kv.get(STATS_KEY, "json")) || defaultStats();
+  stats.totalChecks += 1;
+  stats.lastCheckedAt = checkedAt;
+  increment(stats.byDay, day);
+  increment(stats.byVersion, currentVersion);
+  increment(stats.byEdition, edition);
+  increment(stats.bySource, source);
+  await kv.put(STATS_KEY, JSON.stringify(stats));
+}
+
+async function recordDeletedTag(kv) {
+  const stats = (await kv.get(STATS_KEY, "json")) || defaultStats();
+  stats.deletedTags = (stats.deletedTags || 0) + 1;
+  stats.lastDeletedAt = Date.now();
+  await kv.put(STATS_KEY, JSON.stringify(stats));
+}
+
+function requireKv(env) {
+  if (!env.APP_UPDATE_KV) {
+    throw httpError(500, "APP_UPDATE_KV KV namespace binding is missing");
+  }
+  return env.APP_UPDATE_KV;
+}
+
+function requireAdmin(request, env) {
+  const expected = env.ADMIN_TOKEN || env.APP_UPDATE_WORKER_TOKEN;
+  if (!expected) {
+    throw httpError(500, "ADMIN_TOKEN is not configured");
   }
 
-  async handleStats() {
-    const stats = (await this.state.storage.get("stats")) || defaultStats();
-    return json({ ok: true, stats });
-  }
-
-  async loadReleases({ includeDrafts = false } = {}) {
-    const entries = await this.state.storage.list({ prefix: "release:" });
-    return Array.from(entries.values())
-      .filter((release) => includeDrafts || (!release.draft && release.track !== "unsupported"))
-      .sort((left, right) => {
-        const versionOrder = compareVersions(right.version, left.version);
-        if (versionOrder !== 0) return versionOrder;
-        return (right.publishedAt || 0) - (left.publishedAt || 0);
-      });
-  }
-
-  async recordCheck({ currentVersion, edition, source, checkedAt }) {
-    const day = new Date(checkedAt).toISOString().slice(0, 10);
-    await this.state.storage.transaction(async (txn) => {
-      const stats = (await txn.get("stats")) || defaultStats();
-      stats.totalChecks += 1;
-      stats.lastCheckedAt = checkedAt;
-      increment(stats.byDay, day);
-      increment(stats.byVersion, currentVersion);
-      increment(stats.byEdition, edition);
-      increment(stats.bySource, source);
-      await txn.put("stats", stats);
-    });
-  }
-
-  requireAdmin(request) {
-    const expected = this.env.ADMIN_TOKEN || this.env.APP_UPDATE_WORKER_TOKEN;
-    if (!expected) {
-      throw httpError(500, "ADMIN_TOKEN is not configured");
-    }
-
-    const auth = request.headers.get("authorization") || "";
-    const bearerToken = auth.replace(/^Bearer\s+/i, "").trim();
-    const headerToken = (request.headers.get("x-update-token") || "").trim();
-    if (bearerToken !== expected && headerToken !== expected) {
-      throw httpError(401, "Unauthorized");
-    }
+  const auth = request.headers.get("authorization") || "";
+  const bearerToken = auth.replace(/^Bearer\s+/i, "").trim();
+  const headerToken = (request.headers.get("x-update-token") || "").trim();
+  if (bearerToken !== expected && headerToken !== expected) {
+    throw httpError(401, "Unauthorized");
   }
 }
 

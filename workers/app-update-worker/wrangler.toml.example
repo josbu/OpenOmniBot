@@ -2,13 +2,9 @@ name = "omnibot-app-update-worker"
 main = "worker.js"
 compatibility_date = "2026-05-12"
 
-[[durable_objects.bindings]]
-name = "APP_UPDATE_REGISTRY"
-class_name = "AppUpdateRegistry"
-
-[[migrations]]
-tag = "v1"
-new_classes = ["AppUpdateRegistry"]
+[[kv_namespaces]]
+binding = "APP_UPDATE_KV"
+id = "replace-with-your-kv-namespace-id"
 
 [vars]
 GITHUB_REPO = "omnimind-ai/OpenOmniBot"
