@@ -168,12 +168,6 @@ class _ExperienceMiscSettingPageState
             ),
           ),
           _SettingItem(
-            iconSvg: 'assets/home/habitual_hand_setting_icon.svg',
-            title: context.l10n.settingsHabitualHandTitle,
-            subtitle: context.l10n.settingsHabitualHandSubtitle,
-            trailing: _buildHabitualHandDropdown(habitualHand),
-          ),
-          _SettingItem(
             icon: Icons.vibration,
             iconSvg: 'assets/home/vibration_icon.svg',
             title: context.l10n.settingsVibrationTitle,
@@ -200,6 +194,12 @@ class _ExperienceMiscSettingPageState
             onTap: () {
               GoRouterManager.push('/home/open_with_omnibot_setting');
             },
+          ),
+          _SettingItem(
+            iconSvg: 'assets/home/habitual_hand_setting_icon.svg',
+            title: context.l10n.settingsHabitualHandTitle,
+            subtitle: context.l10n.settingsHabitualHandSubtitle,
+            trailing: _buildHabitualHandDropdown(habitualHand),
           ),
         ],
       ),
