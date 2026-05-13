@@ -1,0 +1,15 @@
+name = "omnibot-app-update-worker"
+main = "worker.js"
+compatibility_date = "2026-05-12"
+
+[[kv_namespaces]]
+binding = "APP_UPDATE_KV"
+id = "replace-with-your-kv-namespace-id"
+
+[vars]
+GITHUB_REPO = "omnimind-ai/OpenOmniBot"
+CNB_REPO = "o.a/OpenOmniBot"
+DEFAULT_SOURCE = "cnb"
+
+# Configure the admin token as a secret:
+# wrangler secret put ADMIN_TOKEN

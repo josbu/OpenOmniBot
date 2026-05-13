@@ -75,7 +75,9 @@ internal object AgentConversationHistorySupport {
         createdAt: Long
     ): Map<String, Any?> {
         val safeText = AgentTextSanitizer.sanitizeUtf16(text)
-        val safeReasoning = AgentTextSanitizer.sanitizeUtf16(reasoningContent.orEmpty()).trim()
+        val safeReasoning = AgentTextSanitizer.sanitizeUtf16(reasoningContent.orEmpty())
+            .trim()
+            .takeIf { it.isNotBlank() }
         val historyAttachments = AgentImageAttachmentSupport
             .prepareAttachments(attachments)
             .historyAttachments
@@ -98,7 +100,7 @@ internal object AgentConversationHistorySupport {
             "streamMeta" to streamMeta,
             "createAt" to Instant.ofEpochMilli(createdAt).toString()
         ).apply {
-            if (user == 2 && safeReasoning.isNotEmpty()) {
+            if (user == 2 && safeReasoning != null) {
                 put("reasoning_content", safeReasoning)
             }
         }.filterValues { it != null }
@@ -507,7 +509,6 @@ internal object AgentConversationHistorySupport {
             "argsJson" to chooseText("argsJson"),
             "resultPreviewJson" to chooseText("resultPreviewJson"),
             "rawResultJson" to chooseText("rawResultJson"),
-            "reasoning_content" to reasoningContent,
             "terminalOutput" to terminalOutput,
             "terminalOutputDelta" to terminalOutputDelta,
             "terminalSessionId" to chooseAny("terminalSessionId"),
@@ -542,9 +543,11 @@ internal object AgentConversationHistorySupport {
         val payload = readMap(entry.payloadJson)
         val content = buildPromptContentFromMessagePayload(payload) ?: return emptyList()
         if (content.isBlankJsonPrimitive()) return emptyList()
-        val reasoningContent = payload["reasoning_content"]?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: payload["reasoningContent"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+        val reasoningContent = AgentTextSanitizer.sanitizeUtf16(
+            payload["reasoning_content"]?.toString()
+                ?: payload["reasoningContent"]?.toString()
+                ?: ""
+        ).trim().takeIf { it.isNotBlank() }
         return listOf(
             ChatCompletionMessage(
                 role = "assistant",
@@ -585,9 +588,6 @@ internal object AgentConversationHistorySupport {
 
         val toolCallId = "restored_${entry.entryId}"
         val argsJson = payload["argsJson"]?.toString()?.trim()?.ifEmpty { null } ?: "{}"
-        val reasoningContent = payload["reasoning_content"]?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: payload["reasoningContent"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
         val assistantMessage = ChatCompletionMessage(
             role = "assistant",
             toolCalls = listOf(
@@ -598,8 +598,7 @@ internal object AgentConversationHistorySupport {
                         arguments = argsJson
                     )
                 )
-            ),
-            reasoningContent = reasoningContent
+            )
         )
         val toolMessage = ChatCompletionMessage(
             role = "tool",
@@ -911,6 +910,9 @@ internal object AgentConversationHistorySupport {
         val text = AgentTextSanitizer.sanitizeUtf16(content["text"]?.toString().orEmpty())
         val attachments = toListOfStringAnyMap(content["attachments"])
         val imageBlocks = attachments.mapNotNull { attachment ->
+            if (!shouldSendAttachmentToModel(attachment)) {
+                return@mapNotNull null
+            }
             val imageUrl = resolveImageAttachmentUrl(attachment)
             if (imageUrl.isBlank()) {
                 null
@@ -939,6 +941,14 @@ internal object AgentConversationHistorySupport {
         }
         blocks += imageBlocks
         return JsonArray(blocks)
+    }
+
+    private fun shouldSendAttachmentToModel(attachment: Map<String, Any?>): Boolean {
+        return when (val raw = attachment["sendToModel"]) {
+            is Boolean -> raw
+            is String -> !raw.equals("false", ignoreCase = true)
+            else -> true
+        }
     }
 
     private fun resolveImageAttachmentUrl(attachment: Map<String, Any?>): String {
@@ -1401,9 +1411,18 @@ internal object AgentConversationHistorySupport {
             content["text"]?.toString().orEmpty().ifBlank { entry.summary },
             MAX_STORAGE_MESSAGE_TEXT_CHARS
         )
-        val reasoningContent = payload["reasoning_content"]?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: payload["reasoningContent"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+        val safeReasoningContent = if (
+            entry.entryType == AgentConversationHistoryRepository.ENTRY_TYPE_ASSISTANT_MESSAGE
+        ) {
+            trimText(
+                payload["reasoning_content"]?.toString()
+                    ?: payload["reasoningContent"]?.toString()
+                    ?: "",
+                MAX_STORAGE_MESSAGE_TEXT_CHARS
+            ).trim().takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
         val safeStreamMeta = compactDisplayStreamMeta(payload["streamMeta"])
         val safeAttachments = compactDisplayList(content["attachments"])
         fun buildPayload(attachments: List<Map<String, Any?>>): Map<String, Any?> {
@@ -1416,7 +1435,7 @@ internal object AgentConversationHistorySupport {
                 },
                 text = safeText,
                 attachments = attachments,
-                reasoningContent = reasoningContent,
+                reasoningContent = safeReasoningContent,
                 isError = parseBoolean(
                     payload["isError"],
                     default = entry.status == AgentConversationHistoryRepository.STATUS_ERROR
@@ -1468,7 +1487,6 @@ internal object AgentConversationHistorySupport {
             },
             text = safeText,
             attachments = emptyList(),
-            reasoningContent = null,
             isError = entry.status == AgentConversationHistoryRepository.STATUS_ERROR,
             streamMeta = mapOf(
                 "payloadCompacted" to true,

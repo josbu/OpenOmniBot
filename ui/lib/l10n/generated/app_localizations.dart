@@ -380,6 +380,30 @@ abstract class AppLocalizations {
   /// **'关闭后，任务结束将停留在当前完成页面'**
   String get settingsAutoBackSubtitle;
 
+  /// No description provided for @settingsHabitualHandTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'惯用手'**
+  String get settingsHabitualHandTitle;
+
+  /// No description provided for @settingsHabitualHandSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'影响聊天历史记录的侧滑菜单方向'**
+  String get settingsHabitualHandSubtitle;
+
+  /// No description provided for @settingsHabitualHandLeft.
+  ///
+  /// In zh, this message translates to:
+  /// **'左手'**
+  String get settingsHabitualHandLeft;
+
+  /// No description provided for @settingsHabitualHandRight.
+  ///
+  /// In zh, this message translates to:
+  /// **'右手'**
+  String get settingsHabitualHandRight;
+
   /// No description provided for @settingsCompanionPermissionTitle.
   ///
   /// In zh, this message translates to:
@@ -1136,6 +1160,12 @@ abstract class AppLocalizations {
   /// **'内置'**
   String get skillBuiltin;
 
+  /// No description provided for @skillOfficial.
+  ///
+  /// In zh, this message translates to:
+  /// **'官方'**
+  String get skillOfficial;
+
   /// No description provided for @skillUser.
   ///
   /// In zh, this message translates to:
@@ -1249,6 +1279,24 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'切换失败'**
   String get skillToggleFailed;
+
+  /// No description provided for @skillSyncOfficialTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'安装/更新官方 Skills'**
+  String get skillSyncOfficialTooltip;
+
+  /// No description provided for @skillSyncOfficialSuccess.
+  ///
+  /// In zh, this message translates to:
+  /// **'官方 Skills 已同步（{count} 个）'**
+  String skillSyncOfficialSuccess(Object count);
+
+  /// No description provided for @skillSyncOfficialFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'同步官方 Skills 失败'**
+  String get skillSyncOfficialFailed;
 
   /// No description provided for @skillLoadFailed.
   ///

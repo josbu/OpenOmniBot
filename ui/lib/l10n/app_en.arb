@@ -47,6 +47,10 @@
   "settingsVibrationSubtitle": "Use vibration to signal task progress while executing",
   "settingsAutoBackTitle": "Return to Chat After Tasks",
   "settingsAutoBackSubtitle": "When disabled, the task result page stays open after completion",
+  "settingsHabitualHandTitle": "Dominant Hand",
+  "settingsHabitualHandSubtitle": "Changes the swipe direction for chat history menus",
+  "settingsHabitualHandLeft": "Left",
+  "settingsHabitualHandRight": "Right",
   "settingsCompanionPermissionTitle": "Companion App Permissions",
   "settingsCompanionPermissionSubtitle": "Only access apps you authorize for better privacy and safety",
   "settingsAboutTitle": "About Omnibot",
@@ -176,6 +180,7 @@
 
   "skillStoreTitle": "Skill Store",
   "skillBuiltin": "Built-in",
+  "skillOfficial": "Official",
   "skillUser": "User",
   "skillInstalled": "Installed",
   "skillNotInstalled": "Not installed",
@@ -195,6 +200,9 @@
   "skillEnabledMsg": "Enabled {name}",
   "skillDisabledMsg": "Disabled {name}",
   "skillToggleFailed": "Failed to toggle",
+  "skillSyncOfficialTooltip": "Install/update official skills",
+  "skillSyncOfficialSuccess": "Official skills synced ({count})",
+  "skillSyncOfficialFailed": "Failed to sync official skills",
   "skillLoadFailed": "Failed to load skills",
 
   "trajectoryTitle": "Trajectory",

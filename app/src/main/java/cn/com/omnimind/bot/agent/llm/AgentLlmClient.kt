@@ -156,13 +156,20 @@ class HttpAgentLlmClient(
     ): ChatCompletionTurn {
         val streamDone = CompletableDeferred<ChatCompletionTurn>()
         val completed = AtomicBoolean(false)
+        val routeInfo = HttpController.resolveChatCompletionRouteInfo(
+            modelOrScene = model,
+            explicitApiBase = modelOverride?.apiBase,
+            explicitApiKey = modelOverride?.apiKey,
+            explicitModel = modelOverride?.modelId,
+            explicitProtocolType = modelOverride?.protocolType
+        )
         val accumulator = AgentLlmStreamAccumulator(
             json = json,
             preferInlineThinkTags = LocalModelProviderBridge.isBuiltinLocalProvider(
                 modelOverride?.providerProfileId,
                 modelOverride?.apiBase
             ),
-            includeReasoningInAssistantMessage = isOfficialDeepSeekTarget()
+            includeReasoningInAssistantMessage = routeInfo?.requiresReasoningEcho == true
         )
         var lastReasoning = ""
         var lastReasoningEmitLength = 0
@@ -268,6 +275,7 @@ class HttpAgentLlmClient(
             if (!completed.compareAndSet(false, true)) return
             runCatching {
                 val turn = accumulator.buildTurn()
+                enforceReasoningEchoIfRequired(turn, routeInfo)
                 emitReasoning(force = true)
                 emitContent()
                 turn
@@ -341,6 +349,25 @@ class HttpAgentLlmClient(
             emissionQueue.close()
             runCatching { emissionJob.join() }
         }
+    }
+
+    private fun enforceReasoningEchoIfRequired(
+        turn: ChatCompletionTurn,
+        routeInfo: HttpController.ChatCompletionRouteInfo
+    ) {
+        if (!routeInfo.requiresReasoningEcho) {
+            return
+        }
+        if (turn.reasoning.isBlank()) {
+            return
+        }
+        if (!turn.message.reasoningContent.isNullOrBlank()) {
+            return
+        }
+        throw IllegalStateException(
+            "assistant turn is missing reasoning_content for route=${routeInfo.resolvedModel} " +
+                "protocol=${routeInfo.protocolType} despite non-empty reasoning output"
+        )
     }
 
     private fun buildRequestVariants(request: ChatCompletionRequest): List<StreamRequestVariant> {

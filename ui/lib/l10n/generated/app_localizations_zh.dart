@@ -150,6 +150,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsAutoBackSubtitle => '关闭后，任务结束将停留在当前完成页面';
 
   @override
+  String get settingsHabitualHandTitle => '惯用手';
+
+  @override
+  String get settingsHabitualHandSubtitle => '影响聊天历史记录的侧滑菜单方向';
+
+  @override
+  String get settingsHabitualHandLeft => '左手';
+
+  @override
+  String get settingsHabitualHandRight => '右手';
+
+  @override
   String get settingsCompanionPermissionTitle => '陪伴权限授权';
 
   @override
@@ -545,6 +557,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get skillBuiltin => '内置';
 
   @override
+  String get skillOfficial => '官方';
+
+  @override
   String get skillUser => '用户';
 
   @override
@@ -608,6 +623,17 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get skillToggleFailed => '切换失败';
+
+  @override
+  String get skillSyncOfficialTooltip => '安装/更新官方 Skills';
+
+  @override
+  String skillSyncOfficialSuccess(Object count) {
+    return '官方 Skills 已同步（$count 个）';
+  }
+
+  @override
+  String get skillSyncOfficialFailed => '同步官方 Skills 失败';
 
   @override
   String get skillLoadFailed => '加载技能仓库失败';
