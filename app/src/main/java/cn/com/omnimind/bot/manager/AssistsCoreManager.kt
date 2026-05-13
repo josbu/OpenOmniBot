@@ -241,6 +241,23 @@ private fun sanitizeInteropMap(payload: Map<String, Any?>): Map<String, Any?> {
     }
 }
 
+internal const val AGENT_MANUAL_CANCELLATION_SEQUENCE = 1_000_000_000L
+internal const val AGENT_MANUAL_CANCELLATION_ROUND = 1_000_000_000
+
+internal fun buildAgentManualCancellationStreamMeta(
+    taskId: String,
+    entryId: String
+): Map<String, Any?> {
+    return linkedMapOf(
+        "seq" to AGENT_MANUAL_CANCELLATION_SEQUENCE,
+        "roundIndex" to AGENT_MANUAL_CANCELLATION_ROUND,
+        "kind" to "text_snapshot",
+        "parentTaskId" to taskId,
+        "entryId" to entryId,
+        "isFinal" to true
+    )
+}
+
 internal fun extractChatTaskTextPayload(content: String): String {
     val normalized = content.trim()
     if (normalized.isEmpty() || normalized == "[DONE]") {
@@ -512,8 +529,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     )
 
     private class ActiveAgentRunContext(
-        private val taskId: String,
-        val job: Job
+        val taskId: String,
+        val job: Job,
+        val conversationId: Long?,
+        val conversationMode: String
     ) : AgentRunControl {
         private val lock = Any()
         private var generationCounter = 0L
@@ -724,20 +743,66 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     }
 
     private fun cancelActiveAgentRun(taskId: String?, reason: String) {
-        val jobsToCancel = synchronized(activeAgentLock) {
+        val runsToCancel = synchronized(activeAgentLock) {
             if (taskId.isNullOrBlank()) {
-                val snapshot = activeAgentRuns.values.map { it.job }
+                val snapshot = activeAgentRuns.values.toList()
                 activeAgentRuns.clear()
                 snapshot
             } else {
-                val current = activeAgentRuns.remove(taskId)?.job
+                val current = activeAgentRuns.remove(taskId)
                 if (current == null) emptyList() else listOf(current)
             }
         }
-        if (jobsToCancel.isNotEmpty()) {
+        if (runsToCancel.isNotEmpty()) {
             OmniLog.i(TAG, "Cancelling active agent run(s): $reason taskId=$taskId")
-            jobsToCancel.forEach { job ->
-                job.cancel(CancellationException(reason))
+            runsToCancel.forEach { run ->
+                publishManualAgentCancellation(run)
+                run.job.cancel(CancellationException(reason))
+            }
+        }
+    }
+
+    private fun publishManualAgentCancellation(run: ActiveAgentRunContext) {
+        val conversationId = run.conversationId ?: return
+        val cancelledText = when (AppLocaleManager.resolvePromptLocale(context)) {
+            PromptLocale.EN_US -> "Task canceled"
+            PromptLocale.ZH_CN -> "任务已取消"
+        }
+        val entryId = "${run.taskId}-cancelled"
+        val now = System.currentTimeMillis()
+        val streamMeta = buildAgentManualCancellationStreamMeta(run.taskId, entryId)
+        workJob.launch {
+            runCatching {
+                val repository = conversationHistoryRepository()
+                repository.upsertAssistantMessage(
+                    conversationId = conversationId,
+                    conversationMode = run.conversationMode,
+                    entryId = entryId,
+                    text = cancelledText,
+                    isError = false,
+                    streamMeta = streamMeta,
+                    createdAt = now
+                )
+                withContext(Dispatchers.Main) {
+                    invokeFlutterEventSafely(
+                        "onAgentStreamEvent",
+                        sanitizeInteropMap(
+                            mapOf(
+                                "taskId" to run.taskId,
+                                "seq" to AGENT_MANUAL_CANCELLATION_SEQUENCE,
+                                "kind" to "text_snapshot",
+                                "entryId" to entryId,
+                                "roundIndex" to AGENT_MANUAL_CANCELLATION_ROUND,
+                                "isFinal" to true,
+                                "text" to cancelledText,
+                                "createdAt" to now,
+                                "streamMeta" to streamMeta
+                            )
+                        )
+                    )
+                }
+            }.onFailure {
+                OmniLog.w(TAG, "publish manual agent cancellation failed: ${it.message}", it)
             }
         }
     }
@@ -3797,7 +3862,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
         val agentRunJob = SupervisorJob()
         val agentRunScope = CoroutineScope(agentRunJob + Dispatchers.Default)
-        val agentRunContext = ActiveAgentRunContext(taskId = taskId, job = agentRunJob)
+        val agentRunContext = ActiveAgentRunContext(
+            taskId = taskId,
+            job = agentRunJob,
+            conversationId = conversationId,
+            conversationMode = resolvedConversationMode
+        )
         registerActiveAgentRun(taskId, agentRunContext)
 
         agentRunScope.launch {

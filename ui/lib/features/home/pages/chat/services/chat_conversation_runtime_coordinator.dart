@@ -435,6 +435,25 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     if (runtime != null) {
       _flushStreamingTextForTask(runtime, taskId);
       _clearStreamingTextBatchesForTask(runtime, taskId);
+      runtime.agentStreamStates.remove(taskId);
+      runtime.currentAiMessages.remove(taskId);
+      runtime.currentThinkingMessages.remove(taskId);
+      runtime.isAiResponding = false;
+      runtime.isExecutingTask = false;
+      runtime.isCheckingExecutableTask = false;
+      runtime.deepThinkingContent = '';
+      runtime.isDeepThinking = false;
+      runtime.activeToolCardId = null;
+      runtime.activeThinkingCardId = null;
+      runtime.pendingAgentTextTaskId = null;
+      runtime.waitingThinkingBeforeAgentTextTaskId = null;
+      runtime.pendingThinkingRoundSplit = false;
+      if (runtime.currentDispatchTaskId == taskId) {
+        runtime.currentDispatchTaskId = null;
+      }
+      if (runtime.lastAgentTaskId == taskId) {
+        runtime.lastAgentTaskId = null;
+      }
     }
     _taskBindings.remove(taskId);
   }
