@@ -1646,10 +1646,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Choose the source used for update installs.';
 
   @override
-  String get aboutApkSourceOptionCnb => 'CNB';
+  String get aboutApkSourceOptionCnb => 'Cloudflare R2';
 
   @override
-  String get aboutApkSourceOptionCnbDescription => 'Best for mainland China';
+  String get aboutApkSourceOptionCnbDescription => 'Served by update worker';
 
   @override
   String get aboutApkSourceOptionGithub => 'GitHub';

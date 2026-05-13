@@ -2957,13 +2957,13 @@ abstract class AppLocalizations {
   /// No description provided for @aboutApkSourceOptionCnb.
   ///
   /// In zh, this message translates to:
-  /// **'CNB'**
+  /// **'Cloudflare R2'**
   String get aboutApkSourceOptionCnb;
 
   /// No description provided for @aboutApkSourceOptionCnbDescription.
   ///
   /// In zh, this message translates to:
-  /// **'国内网络优先'**
+  /// **'通过更新 Worker 分发'**
   String get aboutApkSourceOptionCnbDescription;
 
   /// No description provided for @aboutApkSourceOptionGithub.

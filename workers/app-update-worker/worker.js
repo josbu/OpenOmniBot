@@ -1,6 +1,8 @@
 const DEFAULT_GITHUB_REPO = "omnimind-ai/OpenOmniBot";
-const DEFAULT_CNB_REPO = "o.a/OpenOmniBot";
 const DEFAULT_EDITIONS = ["omniinfer", "standard"];
+const DEFAULT_R2_RELEASES_PREFIX = "releases";
+const DOWNLOAD_ROUTE_PREFIX = "/downloads/";
+const ADMIN_RELEASE_ROUTE_PREFIX = "/admin/releases/";
 const STATS_KEY = "stats";
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -18,19 +20,30 @@ export default {
         status: 204,
         headers: {
           ...JSON_HEADERS,
-          "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
-          "access-control-allow-headers": "authorization,content-type,x-update-token",
+          "access-control-allow-methods": "GET,HEAD,POST,PUT,DELETE,OPTIONS",
+          "access-control-allow-headers": "authorization,content-type,x-content-sha256,x-update-token",
         },
       });
     }
 
     try {
+      if ((request.method === "GET" || request.method === "HEAD") && pathname.startsWith(DOWNLOAD_ROUTE_PREFIX)) {
+        return handleDownloadAsset(request, url, env);
+      }
+
       if (request.method === "GET" && pathname === "/") {
         return json({
           ok: true,
           service: "omnibot-app-update-worker",
-          storage: "kv",
-          routes: ["/updates", "/admin/releases", "/admin/releases/:tag", "/admin/stats"],
+          storage: "kv+r2",
+          routes: [
+            "/updates",
+            "/downloads/:tag/:asset",
+            "/admin/releases",
+            "/admin/releases/:tag",
+            "/admin/releases/:tag/assets/:asset",
+            "/admin/stats",
+          ],
         });
       }
 
@@ -46,6 +59,11 @@ export default {
       if (pathname === "/admin/releases" && request.method === "POST") {
         requireAdmin(request, env);
         return handleUpsertRelease(request, env);
+      }
+
+      if (request.method === "PUT" && pathname.startsWith(ADMIN_RELEASE_ROUTE_PREFIX)) {
+        requireAdmin(request, env);
+        return handleUploadAsset(request, url, env);
       }
 
       if (pathname === "/admin/releases" && request.method === "DELETE") {
@@ -81,7 +99,7 @@ async function handleUpdateCheck(url, env) {
   );
   const includeBeta = parseBoolean(url.searchParams.get("includeBeta") || url.searchParams.get("include_beta"));
   const edition = normalizeEdition(url.searchParams.get("edition"));
-  const source = normalizeSource(url.searchParams.get("source") || env.DEFAULT_SOURCE || "cnb");
+  const source = normalizeSource(url.searchParams.get("source") || env.DEFAULT_SOURCE || "worker");
   const checkedAt = Date.now();
 
   await recordCheck(kv, {
@@ -113,10 +131,10 @@ async function handleUpdateCheck(url, env) {
     releaseUrl: selected.releaseUrl || "",
     releaseNotes: selected.releaseNotes || "",
     apkName: asset?.name || "",
-    apkDownloadUrl: asset ? assetDownloadUrl(asset, source) : "",
+    apkDownloadUrl: asset ? assetDownloadUrl(asset, source, url, selected.tag) : "",
     edition,
     source,
-    assets: selected.assets.map(publicAsset),
+    assets: (selected.assets || []).map((releaseAsset) => publicAsset(releaseAsset, url, selected.tag)),
   });
 }
 
@@ -131,6 +149,85 @@ async function handleUpsertRelease(request, env) {
   const release = normalizeRelease(body, env);
   await kv.put(releaseKey(release.tag), JSON.stringify(release));
   return json({ ok: true, release });
+}
+
+async function handleUploadAsset(request, url, env) {
+  const bucket = requireBucket(env);
+  const parsed = parseAdminAssetPath(normalizePath(url.pathname));
+  if (!parsed) {
+    throw httpError(404, "Upload route not found");
+  }
+
+  const { tag, name } = parsed;
+  validateStoredAssetName(name);
+  if (!request.body) {
+    throw httpError(400, "asset body is required");
+  }
+
+  const contentType = request.headers.get("content-type") || contentTypeForAssetName(name);
+  const sha256 = stringValue(request.headers.get("x-content-sha256"));
+  const size = normalizeSize(request.headers.get("content-length"));
+  const key = assetObjectKey(tag, name, env);
+  const uploadedAt = Date.now();
+
+  const uploaded = await bucket.put(key, request.body, {
+    httpMetadata: {
+      contentType,
+      contentDisposition: `attachment; filename="${headerFileName(name)}"`,
+    },
+    customMetadata: omitEmpty({
+      tag,
+      name,
+      sha256,
+      size: size ? String(size) : "",
+      uploadedAt: String(uploadedAt),
+    }),
+  });
+
+  const workerDownloadUrl = publicDownloadUrl(url, tag, name);
+  return json({
+    ok: true,
+    asset: {
+      name,
+      r2ObjectKey: key,
+      workerDownloadUrl,
+      downloadUrl: workerDownloadUrl,
+      sha256,
+      size,
+      etag: uploaded?.etag || "",
+      uploadedAt,
+    },
+  });
+}
+
+async function handleDownloadAsset(request, url, env) {
+  const bucket = requireBucket(env);
+  const parsed = parseDownloadPath(normalizePath(url.pathname));
+  if (!parsed) {
+    throw httpError(404, "Download route not found");
+  }
+
+  const { tag, name } = parsed;
+  validateStoredAssetName(name);
+  const object = await bucket.get(assetObjectKey(tag, name, env));
+  if (!object) {
+    throw httpError(404, "Asset not found");
+  }
+
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  const etag = object.httpEtag || object.etag || "";
+  if (etag) {
+    headers.set("etag", etag);
+  }
+  headers.set("cache-control", isApkAssetName(name) ? "public, max-age=300" : "public, max-age=60");
+  headers.set("content-disposition", `attachment; filename="${headerFileName(name)}"`);
+  headers.set("access-control-allow-origin", "*");
+
+  return new Response(request.method === "HEAD" ? null : object.body, {
+    status: 200,
+    headers,
+  });
 }
 
 async function handleDeleteRelease(rawTag, env) {
@@ -206,6 +303,13 @@ function requireKv(env) {
   return env.APP_UPDATE_KV;
 }
 
+function requireBucket(env) {
+  if (!env.APP_UPDATE_BUCKET) {
+    throw httpError(500, "APP_UPDATE_BUCKET R2 bucket binding is missing");
+  }
+  return env.APP_UPDATE_BUCKET;
+}
+
 function requireAdmin(request, env) {
   const expected = env.ADMIN_TOKEN || env.APP_UPDATE_WORKER_TOKEN;
   if (!expected) {
@@ -251,7 +355,7 @@ function normalizeRelease(input, env) {
 
 function normalizeAssets(rawAssets, tag, env) {
   const assets = Array.isArray(rawAssets)
-    ? rawAssets.map((asset) => normalizeAsset(asset)).filter(Boolean)
+    ? rawAssets.map((asset) => normalizeAsset(asset, tag, env)).filter(Boolean)
     : [];
 
   if (assets.length > 0) {
@@ -261,26 +365,32 @@ function normalizeAssets(rawAssets, tag, env) {
   return DEFAULT_EDITIONS.map((edition) => buildDefaultAsset(tag, edition, env));
 }
 
-function normalizeAsset(asset) {
+function normalizeAsset(asset, tag, env) {
   if (!asset || typeof asset !== "object") return null;
   const name = stringValue(asset.name || asset.fileName || asset.filename);
   if (!name.toLowerCase().endsWith(".apk")) return null;
+  const r2ObjectKey = stringValue(asset.r2ObjectKey || asset.r2_object_key || asset.key) ||
+    assetObjectKey(tag, name, env);
   return {
     name,
+    r2ObjectKey,
     downloadUrl: stringValue(asset.downloadUrl || asset.browser_download_url),
+    workerDownloadUrl: stringValue(asset.workerDownloadUrl || asset.worker_download_url),
+    r2DownloadUrl: stringValue(asset.r2DownloadUrl || asset.r2_download_url),
     githubDownloadUrl: stringValue(asset.githubDownloadUrl || asset.github_download_url || asset.browser_download_url),
     cnbDownloadUrl: stringValue(asset.cnbDownloadUrl || asset.cnb_download_url),
+    sha256: stringValue(asset.sha256 || asset.sha256sum || asset.checksum),
+    size: normalizeSize(asset.size || asset.contentLength || asset.content_length),
   };
 }
 
 function buildDefaultAsset(tag, edition, env) {
   const name = `OpenOmniBot-${tag}-${edition}.apk`;
   const githubRepo = env.GITHUB_REPO || DEFAULT_GITHUB_REPO;
-  const cnbRepo = env.CNB_REPO || DEFAULT_CNB_REPO;
   return {
     name,
+    r2ObjectKey: assetObjectKey(tag, name, env),
     githubDownloadUrl: `https://github.com/${githubRepo}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(name)}`,
-    cnbDownloadUrl: `https://cnb.cool/${cnbRepo}/-/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(name)}`,
   };
 }
 
@@ -306,20 +416,88 @@ function selectPreferredApkAsset(assets, edition) {
   return apkAssets.find((asset) => /^OpenOmniBot-v/i.test(asset.name)) || apkAssets[0] || null;
 }
 
-function assetDownloadUrl(asset, source) {
+function assetDownloadUrl(asset, source, url, tag) {
+  const workerDownloadUrl = assetWorkerDownloadUrl(asset, url, tag);
   if (source === "github") {
-    return asset.githubDownloadUrl || asset.downloadUrl || asset.cnbDownloadUrl || "";
+    return asset.githubDownloadUrl || asset.downloadUrl || workerDownloadUrl || "";
   }
-  return asset.cnbDownloadUrl || asset.downloadUrl || asset.githubDownloadUrl || "";
+  return workerDownloadUrl || asset.downloadUrl || asset.githubDownloadUrl || asset.cnbDownloadUrl || "";
 }
 
-function publicAsset(asset) {
+function publicAsset(asset, url, tag) {
+  const workerDownloadUrl = assetWorkerDownloadUrl(asset, url, tag);
   return {
     name: asset.name,
-    downloadUrl: asset.downloadUrl || "",
+    downloadUrl: workerDownloadUrl || asset.downloadUrl || "",
+    workerDownloadUrl,
+    r2DownloadUrl: asset.r2DownloadUrl || "",
+    r2ObjectKey: asset.r2ObjectKey || "",
     githubDownloadUrl: asset.githubDownloadUrl || "",
     cnbDownloadUrl: asset.cnbDownloadUrl || "",
+    sha256: asset.sha256 || "",
+    size: normalizeSize(asset.size),
   };
+}
+
+function assetWorkerDownloadUrl(asset, url, tag) {
+  return asset.workerDownloadUrl || asset.r2DownloadUrl || (asset.name ? publicDownloadUrl(url, tag, asset.name) : "");
+}
+
+function parseDownloadPath(pathname) {
+  const rest = pathname.slice(DOWNLOAD_ROUTE_PREFIX.length);
+  const separator = rest.indexOf("/");
+  if (separator <= 0 || separator >= rest.length - 1) return null;
+  return {
+    tag: normalizeTag(decodePathSegment(rest.slice(0, separator))),
+    name: decodePathSegment(rest.slice(separator + 1)),
+  };
+}
+
+function parseAdminAssetPath(pathname) {
+  if (!pathname.startsWith(ADMIN_RELEASE_ROUTE_PREFIX)) return null;
+  const rest = pathname.slice(ADMIN_RELEASE_ROUTE_PREFIX.length);
+  const marker = "/assets/";
+  const markerIndex = rest.indexOf(marker);
+  if (markerIndex <= 0 || markerIndex >= rest.length - marker.length) return null;
+  return {
+    tag: normalizeTag(decodePathSegment(rest.slice(0, markerIndex))),
+    name: decodePathSegment(rest.slice(markerIndex + marker.length)),
+  };
+}
+
+function publicDownloadUrl(url, tag, name) {
+  return `${url.origin}${DOWNLOAD_ROUTE_PREFIX}${encodePathSegment(tag)}/${encodePathSegment(name)}`;
+}
+
+function assetObjectKey(tag, name, env) {
+  const prefix = normalizeR2Prefix(env.R2_RELEASES_PREFIX || DEFAULT_R2_RELEASES_PREFIX);
+  return `${prefix}/${encodePathSegment(tag)}/${encodePathSegment(name)}`;
+}
+
+function normalizeR2Prefix(raw) {
+  return stringValue(raw).replace(/^\/+|\/+$/g, "") || DEFAULT_R2_RELEASES_PREFIX;
+}
+
+function validateStoredAssetName(name) {
+  const value = stringValue(name);
+  if (!value || value.includes("/") || value.includes("\\") || value === "." || value === "..") {
+    throw httpError(400, "invalid asset name");
+  }
+  if (!isApkAssetName(value) && !value.toLowerCase().endsWith(".apk.sha256")) {
+    throw httpError(400, "only APK assets and APK SHA-256 files are supported");
+  }
+}
+
+function isApkAssetName(name) {
+  return stringValue(name).toLowerCase().endsWith(".apk");
+}
+
+function contentTypeForAssetName(name) {
+  return isApkAssetName(name) ? "application/vnd.android.package-archive" : "text/plain; charset=utf-8";
+}
+
+function headerFileName(name) {
+  return stringValue(name).replace(/["\r\n]/g, "_");
 }
 
 function normalizePath(pathname) {
@@ -402,7 +580,7 @@ function normalizeEdition(raw) {
 }
 
 function normalizeSource(raw) {
-  return stringValue(raw).toLowerCase() === "github" ? "github" : "cnb";
+  return stringValue(raw).toLowerCase() === "github" ? "github" : "worker";
 }
 
 function parseBoolean(raw) {
@@ -469,6 +647,27 @@ function releaseKey(tag) {
 function stringValue(value) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function normalizeSize(raw) {
+  const size = Number(raw);
+  return Number.isFinite(size) && size > 0 ? Math.trunc(size) : 0;
+}
+
+function omitEmpty(input) {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => stringValue(value) !== ""));
+}
+
+function encodePathSegment(raw) {
+  return encodeURIComponent(stringValue(raw));
+}
+
+function decodePathSegment(raw) {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    throw httpError(400, "invalid encoded path segment");
+  }
 }
 
 async function readJson(request) {

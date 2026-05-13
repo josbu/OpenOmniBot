@@ -6,10 +6,14 @@ compatibility_date = "2026-05-12"
 binding = "APP_UPDATE_KV"
 id = "replace-with-your-kv-namespace-id"
 
+[[r2_buckets]]
+binding = "APP_UPDATE_BUCKET"
+bucket_name = "replace-with-your-r2-bucket-name"
+
 [vars]
 GITHUB_REPO = "omnimind-ai/OpenOmniBot"
-CNB_REPO = "o.a/OpenOmniBot"
-DEFAULT_SOURCE = "cnb"
+DEFAULT_SOURCE = "worker"
+R2_RELEASES_PREFIX = "releases"
 
 # Configure the admin token as a secret:
 # wrangler secret put ADMIN_TOKEN

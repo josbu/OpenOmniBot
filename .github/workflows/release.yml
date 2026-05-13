@@ -276,63 +276,60 @@ jobs:
             ${{ env.RELEASE_ASSET_DIR }}/OpenOmniBot-${{ env.SAFE_REF_NAME }}-standard.apk
             ${{ env.RELEASE_ASSET_DIR }}/OpenOmniBot-${{ env.SAFE_REF_NAME }}-standard.apk.sha256
 
-      - name: Set up Node.js for CNB CLI
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install CNB CLI
-        if: startsWith(github.ref, 'refs/tags/')
-        run: npm install --global @cnbcool/cnb-cli
-
-      - name: Mirror GitHub release to CNB
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload APKs to Cloudflare R2 via Worker
+        if: steps.release_ref.outputs.publish_release == 'true'
+        shell: bash
         env:
-          CNB_TOKEN: ${{ secrets.CNB_TOKEN != '' && secrets.CNB_TOKEN || secrets.GIT_PASSWORD }}
-          CNB_API_ENDPOINT: ${{ secrets.CNB_API_ENDPOINT != '' && secrets.CNB_API_ENDPOINT || 'https://api.cnb.cool' }}
-          CNB_REPO_SLUG: o.a/OpenOmniBot
-          CNB_RELEASE_BODY: |
-            Mirrored from GitHub release:
-            https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
-
-            Commit: ${{ github.sha }}
+          APP_UPDATE_WORKER_URL: ${{ secrets.APP_UPDATE_WORKER_URL }}
+          APP_UPDATE_WORKER_TOKEN: ${{ secrets.APP_UPDATE_WORKER_TOKEN }}
+          RELEASE_TAG_NAME: ${{ steps.release_ref.outputs.release_tag_name }}
         run: |
-          if [[ -z "${CNB_TOKEN}" ]]; then
-            echo "CNB mirror token is empty. Configure repository or organization secret CNB_TOKEN, or provide GIT_PASSWORD as a fallback." >&2
+          set -euo pipefail
+
+          if [[ -z "${APP_UPDATE_WORKER_URL}" || -z "${APP_UPDATE_WORKER_TOKEN}" ]]; then
+            echo "APP_UPDATE_WORKER_URL and APP_UPDATE_WORKER_TOKEN secrets are required to upload APKs." >&2
             exit 1
           fi
 
-          if ! command -v python3.11 >/dev/null 2>&1; then
-            echo "python3.11 is required for scripts/mirror_github_release_to_cnb.py. Install Python 3.11 on the self-hosted runner." >&2
-            exit 1
+          PYTHON_BIN=python3
+          if command -v python3.11 >/dev/null 2>&1; then
+            PYTHON_BIN=python3.11
           fi
 
-          PYTHON_BIN=python3.11
-          echo "Using Python interpreter: ${PYTHON_BIN}"
-          "${PYTHON_BIN}" --version
+          url_encode() {
+            "${PYTHON_BIN}" -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"
+          }
 
-          ARGS=(
-            --repo "${CNB_REPO_SLUG}"
-            --tag "${GITHUB_REF_NAME}"
-            --target-commitish "${GITHUB_SHA}"
-            --name "${GITHUB_REF_NAME}"
-            --body "${CNB_RELEASE_BODY}"
-            --make-latest false
-            --asset "${RELEASE_ASSET_DIR}/OpenOmniBot-${SAFE_REF_NAME}-omniinfer.apk"
-            --asset "${RELEASE_ASSET_DIR}/OpenOmniBot-${SAFE_REF_NAME}-omniinfer.apk.sha256"
-            --asset "${RELEASE_ASSET_DIR}/OpenOmniBot-${SAFE_REF_NAME}-standard.apk"
-            --asset "${RELEASE_ASSET_DIR}/OpenOmniBot-${SAFE_REF_NAME}-standard.apk.sha256"
-          )
+          api_url="${APP_UPDATE_WORKER_URL%/}"
+          api_url="${api_url%/updates}"
+          api_url="${api_url%/admin/releases}"
+          encoded_tag="$(url_encode "${RELEASE_TAG_NAME}")"
 
-          if [[ "${{ steps.release_mode.outputs.draft }}" == 'true' ]]; then
-            ARGS+=(--draft)
-          fi
-          if [[ "${{ steps.release_mode.outputs.prerelease }}" == 'true' ]]; then
-            ARGS+=(--prerelease)
-          fi
+          upload_asset() {
+            local asset_path="$1"
+            local content_type="$2"
+            local sha256="$3"
+            local asset_name
+            asset_name="$(basename "${asset_path}")"
+            local encoded_name
+            encoded_name="$(url_encode "${asset_name}")"
 
-          "${PYTHON_BIN}" scripts/mirror_github_release_to_cnb.py "${ARGS[@]}"
+            curl --fail --show-error --silent --location \
+              --request PUT "${api_url}/admin/releases/${encoded_tag}/assets/${encoded_name}" \
+              --header "Authorization: Bearer ${APP_UPDATE_WORKER_TOKEN}" \
+              --header "Content-Type: ${content_type}" \
+              --header "X-Content-SHA256: ${sha256}" \
+              --upload-file "${asset_path}" >/dev/null
+          }
+
+          for edition in omniinfer standard; do
+            apk_path="${RELEASE_ASSET_DIR}/OpenOmniBot-${SAFE_REF_NAME}-${edition}.apk"
+            sha_path="${apk_path}.sha256"
+            sha256="$(awk '{print $1}' "${sha_path}")"
+            sha_file_sha256="$(sha256sum "${sha_path}" | awk '{print $1}')"
+            upload_asset "${apk_path}" "application/vnd.android.package-archive" "${sha256}"
+            upload_asset "${sha_path}" "text/plain; charset=utf-8" "${sha_file_sha256}"
+          done
 
       - name: Publish release tag to Cloudflare Worker
         if: steps.release_ref.outputs.publish_release == 'true'
@@ -344,7 +341,6 @@ jobs:
           RELEASE_TRACK: ${{ steps.release_mode.outputs.track }}
           RELEASE_DRAFT: ${{ steps.release_mode.outputs.draft }}
           RELEASE_PRERELEASE: ${{ steps.release_mode.outputs.prerelease }}
-          CNB_REPO_SLUG: o.a/OpenOmniBot
         run: |
           set -euo pipefail
 
@@ -363,21 +359,25 @@ jobs:
           import json
           import os
           import time
+          from pathlib import Path
 
           tag = os.environ["RELEASE_TAG_NAME"]
           safe_ref = os.environ["SAFE_REF_NAME"]
           github_repo = os.environ["GITHUB_REPOSITORY"]
-          cnb_repo = os.environ["CNB_REPO_SLUG"]
+          asset_dir = Path(os.environ["RELEASE_ASSET_DIR"])
 
           def env_bool(name):
               return os.environ.get(name, "").lower() == "true"
 
           def apk_asset(edition):
               name = f"OpenOmniBot-{safe_ref}-{edition}.apk"
+              apk_path = asset_dir / name
+              sha256 = (asset_dir / f"{name}.sha256").read_text(encoding="utf-8").split()[0]
               return {
                   "name": name,
                   "githubDownloadUrl": f"https://github.com/{github_repo}/releases/download/{tag}/{name}",
-                  "cnbDownloadUrl": f"https://cnb.cool/{cnb_repo}/-/releases/download/{tag}/{name}",
+                  "sha256": sha256,
+                  "size": apk_path.stat().st_size,
               }
 
           payload = {

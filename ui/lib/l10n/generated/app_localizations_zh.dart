@@ -1536,10 +1536,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get aboutApkSourceDescription => '选择安装更新时使用的下载源。';
 
   @override
-  String get aboutApkSourceOptionCnb => 'CNB';
+  String get aboutApkSourceOptionCnb => 'Cloudflare R2';
 
   @override
-  String get aboutApkSourceOptionCnbDescription => '国内网络优先';
+  String get aboutApkSourceOptionCnbDescription => '通过更新 Worker 分发';
 
   @override
   String get aboutApkSourceOptionGithub => 'GitHub';

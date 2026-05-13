@@ -61,12 +61,15 @@ internal data class ReleaseAsset(
 
 @VisibleForTesting
 internal enum class ApkDownloadSource(val value: String) {
-    CNB("cnb"),
+    WORKER("worker"),
     GITHUB("github");
 
     companion object {
         fun fromValue(raw: String?): ApkDownloadSource {
-            return entries.firstOrNull { it.value.equals(raw?.trim(), ignoreCase = true) } ?: CNB
+            return when (raw?.trim()?.lowercase(Locale.ROOT)) {
+                GITHUB.value -> GITHUB
+                else -> WORKER
+            }
         }
     }
 }
@@ -103,10 +106,9 @@ object AppUpdateManager {
     private const val KEY_APK_DOWNLOAD_SOURCE = "apk_download_source"
 
     private const val WORKER_UPDATES_PATH = "updates"
+    private const val WORKER_DOWNLOADS_PATH = "downloads"
     private const val GITHUB_RELEASE_DOWNLOAD_PREFIX =
         "https://github.com/omnimind-ai/OpenOmniBot/releases/download"
-    private const val CNB_RELEASE_DOWNLOAD_PREFIX =
-        "https://cnb.cool/o.a/OpenOmniBot/-/releases/download"
     private const val WORK_NAME = "app_update_periodic_check"
     private const val PERIODIC_CHECK_HOURS = 12L
     private const val SILENT_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
@@ -535,11 +537,16 @@ object AppUpdateManager {
             val name = firstString(raw, "name", "fileName", "filename")
             if (!name.lowercase(Locale.ROOT).endsWith(".apk")) continue
             val downloadUrl = when (downloadSource) {
-                ApkDownloadSource.CNB -> firstString(
+                ApkDownloadSource.WORKER -> firstString(
                     raw,
+                    "workerDownloadUrl",
+                    "worker_download_url",
+                    "r2DownloadUrl",
+                    "r2_download_url",
+                    "downloadUrl",
+                    "apkDownloadUrl",
                     "cnbDownloadUrl",
                     "cnb_download_url",
-                    "downloadUrl",
                     "browser_download_url",
                     "githubDownloadUrl",
                     "github_download_url"
@@ -566,12 +573,16 @@ object AppUpdateManager {
         val name = firstString(payload, "apkName", "assetName")
         if (!name.lowercase(Locale.ROOT).endsWith(".apk")) return null
         val downloadUrl = when (downloadSource) {
-            ApkDownloadSource.CNB -> firstString(
+            ApkDownloadSource.WORKER -> firstString(
                 payload,
-                "cnbDownloadUrl",
-                "cnb_download_url",
+                "workerDownloadUrl",
+                "worker_download_url",
+                "r2DownloadUrl",
+                "r2_download_url",
                 "apkDownloadUrl",
                 "downloadUrl",
+                "cnbDownloadUrl",
+                "cnb_download_url",
                 "githubDownloadUrl",
                 "github_download_url"
             )
@@ -623,10 +634,24 @@ object AppUpdateManager {
         val releaseTag = "v${encodePathSegment(normalizedVersion)}"
         val fileName = encodePathSegment(asset.name)
         val prefix = when (downloadSource) {
-            ApkDownloadSource.CNB -> CNB_RELEASE_DOWNLOAD_PREFIX
+            ApkDownloadSource.WORKER -> normalizedWorkerBaseUrl()?.let {
+                "$it/$WORKER_DOWNLOADS_PATH"
+            } ?: return asset.downloadUrl
             ApkDownloadSource.GITHUB -> GITHUB_RELEASE_DOWNLOAD_PREFIX
         }
         return "$prefix/$releaseTag/$fileName"
+    }
+
+    private fun normalizedWorkerBaseUrl(): String? {
+        var normalizedBase = BuildConfig.APP_UPDATE_WORKER_URL.trim().trimEnd('/')
+        if (normalizedBase.isBlank()) return null
+        if (normalizedBase.endsWith("/$WORKER_UPDATES_PATH", ignoreCase = true)) {
+            normalizedBase = normalizedBase.dropLast(WORKER_UPDATES_PATH.length + 1)
+        }
+        if (normalizedBase.endsWith("/admin/releases", ignoreCase = true)) {
+            normalizedBase = normalizedBase.dropLast("/admin/releases".length)
+        }
+        return normalizedBase.ifBlank { null }
     }
 
     private fun firstString(raw: JSONObject, vararg keys: String): String {

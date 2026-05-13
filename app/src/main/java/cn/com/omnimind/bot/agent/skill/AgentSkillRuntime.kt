@@ -373,7 +373,7 @@ class SkillIndexService(
 
     private fun resolveOfficialSkillsRepositoryUrl(): String {
         return when (AppUpdateManager.getApkDownloadSource(context.applicationContext)) {
-            ApkDownloadSource.CNB -> OFFICIAL_SKILLS_CNB_REPOSITORY_URL
+            ApkDownloadSource.WORKER -> OFFICIAL_SKILLS_CNB_REPOSITORY_URL
             ApkDownloadSource.GITHUB -> OFFICIAL_SKILLS_GITHUB_REPOSITORY_URL
         }
     }
