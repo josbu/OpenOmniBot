@@ -1449,6 +1449,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   @override
   void clearAgentStreamSessionState() {
+    super.clearAgentStreamSessionState();
     final conversationId = _currentConversationId;
     if (conversationId == null) return;
     _runtimeCoordinator.clearConversationRuntimeSession(
@@ -1965,6 +1966,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   void _onCancelTaskFromCard(String taskId);
 
   void _updateThinkingCardToCancelled(String taskId);
+
+  void _collapseAgentRunTrace(String taskId);
 
   void _onPopupVisibilityChanged(bool visible);
 

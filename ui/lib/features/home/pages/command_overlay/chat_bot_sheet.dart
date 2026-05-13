@@ -247,6 +247,11 @@ class _ChatBotSheetState extends State<ChatBotSheet> with AgentStreamHandler {
   Future<void> persistAgentConversation() => _saveConversationToDb();
 
   @override
+  void clearAgentStreamSessionState() {
+    super.clearAgentStreamSessionState();
+  }
+
+  @override
   void onAgentTextMessageUpdated(String messageId, {bool isFinal = true}) {
     if (isFinal) {
       _syncMessageLinkPreviews(messageId);
@@ -1878,6 +1883,8 @@ class _ChatBotSheetState extends State<ChatBotSheet> with AgentStreamHandler {
         AssistsMessageService.cancelRunningTask(taskId: taskId);
         if (taskId != null) {
           _updateThinkingCardToCancelled(taskId);
+          _upsertCancelledAgentRunMessage(taskId);
+          _collapseAgentRunTrace(taskId);
         }
         _resetDispatchState();
       } else {
@@ -1906,6 +1913,8 @@ class _ChatBotSheetState extends State<ChatBotSheet> with AgentStreamHandler {
       interruptActiveToolCard();
       AssistsMessageService.cancelRunningTask(taskId: taskId);
       _updateThinkingCardToCancelled(taskId);
+      _upsertCancelledAgentRunMessage(taskId);
+      _collapseAgentRunTrace(taskId);
       _resetDispatchState();
       setState(() {
         _isAiResponding = false;
@@ -1945,6 +1954,66 @@ class _ChatBotSheetState extends State<ChatBotSheet> with AgentStreamHandler {
       );
     });
     _persistDeepThinkingCardIfNeeded(_messages[index]);
+  }
+
+  void _collapseAgentRunTrace(String taskId) {
+    final normalizedTaskId = taskId.trim();
+    if (normalizedTaskId.isEmpty ||
+        !_expandedAgentRunTaskIds.contains(normalizedTaskId)) {
+      return;
+    }
+    setState(() {
+      _expandedAgentRunTaskIds.remove(normalizedTaskId);
+    });
+  }
+
+  void _upsertCancelledAgentRunMessage(String taskId) {
+    final normalizedTaskId = taskId.trim();
+    if (normalizedTaskId.isEmpty) {
+      return;
+    }
+    final messageId = '$normalizedTaskId-cancelled';
+    final content = <String, dynamic>{
+      'text': LegacyTextLocalizer.localize('任务已取消'),
+      'id': messageId,
+      'renderMarkdown': false,
+    };
+    final streamMeta = ensureAgentStreamMessageMeta(
+      null,
+      seq: 1000000000,
+      roundIndex: 1000000000,
+      kind: 'text_snapshot',
+      parentTaskId: normalizedTaskId,
+      entryId: messageId,
+      isFinal: true,
+    );
+    final existingIndex = _messages.indexWhere(
+      (message) => message.id == messageId,
+    );
+    setState(() {
+      if (existingIndex == -1) {
+        _messages.insert(
+          0,
+          ChatMessageModel(
+            id: messageId,
+            type: 1,
+            user: 2,
+            content: content,
+            streamMeta: streamMeta,
+          ),
+        );
+      } else {
+        _messages[existingIndex] = _messages[existingIndex].copyWith(
+          content: content,
+          isLoading: false,
+          isError: false,
+          streamMeta: streamMeta,
+        );
+      }
+    });
+    unawaited(
+      _saveConversationToDb(generateSummary: false, markComplete: true),
+    );
   }
 
   void _onPopupVisibilityChanged(bool visible) {

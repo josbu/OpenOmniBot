@@ -1570,10 +1570,65 @@ class _ChatMessageListState extends State<ChatMessageList> {
     if (!mounted) {
       return;
     }
+    _collapseCancelledAgentRuns();
     if (_autoStickToLatest && !_isAutoStickTemporarilySuppressed) {
       _scheduleStickToLatest();
     }
     setState(() {});
+  }
+
+  void _collapseCancelledAgentRuns() {
+    final collapsedTaskIds = _cancelledAgentRunTaskIds(
+      _expandedAgentRunTaskIds,
+    );
+    if (collapsedTaskIds.isEmpty) {
+      return;
+    }
+    final nextExpandedTaskIds = Set<String>.from(_expandedAgentRunTaskIds)
+      ..removeAll(collapsedTaskIds);
+    if (widget.expandedAgentRunTaskIds != null) {
+      widget.onExpandedAgentRunTaskIdsChanged?.call(nextExpandedTaskIds);
+      return;
+    }
+    _localExpandedAgentRunTaskIds
+      ..clear()
+      ..addAll(nextExpandedTaskIds);
+    widget.onExpandedAgentRunTaskIdsChanged?.call(nextExpandedTaskIds);
+  }
+
+  Set<String> _cancelledAgentRunTaskIds(Set<String> expandedTaskIds) {
+    if (expandedTaskIds.isEmpty) {
+      return const <String>{};
+    }
+    final normalizedExpandedTaskIds = expandedTaskIds
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toSet();
+    if (normalizedExpandedTaskIds.isEmpty) {
+      return const <String>{};
+    }
+    final collapsedTaskIds = <String>{};
+    final messages = _observableMessages ?? widget.messages;
+    for (final message in messages) {
+      final taskId = agentRunParentTaskId(message);
+      if (taskId == null || !normalizedExpandedTaskIds.contains(taskId)) {
+        continue;
+      }
+      if (_isCancelledAgentRunMessage(message)) {
+        collapsedTaskIds.add(taskId);
+      }
+    }
+    return collapsedTaskIds;
+  }
+
+  bool _isCancelledAgentRunMessage(ChatMessageModel message) {
+    if (message.type != 1 || message.user != 2) {
+      return false;
+    }
+    final text = (message.text ?? '').trim().toLowerCase();
+    return text == '任务已取消' ||
+        text == 'task canceled' ||
+        text == 'task cancelled';
   }
 
   void _handleParentScrollHandoff() {
