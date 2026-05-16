@@ -18,12 +18,15 @@ import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
 import 'package:ui/features/home/pages/chat/utils/stream_text_merge.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_thinking_card_locator.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
+import 'package:ui/features/home/pages/chat/utils/keyboard_inset_motion_tracker.dart';
 import 'package:ui/features/home/pages/chat/widgets/agent_run_group_message.dart';
+import 'package:ui/features/home/pages/chat/widgets/chat_empty_greeting.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/services/voice_playback_coordinator.dart';
 import 'package:ui/services/screen_dialog_service.dart';
 import 'package:ui/services/conversation_service.dart';
 import 'package:ui/services/conversation_history_service.dart';
+import 'package:ui/services/home_greeting_settings_service.dart';
 import 'package:ui/services/link_preview_service.dart';
 import 'package:ui/widgets/ai_generated_badge.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
@@ -66,7 +69,8 @@ class ChatBotSheet extends StatefulWidget {
   State<ChatBotSheet> createState() => _ChatBotSheetState();
 }
 
-class _ChatBotSheetState extends State<ChatBotSheet> with AgentStreamHandler {
+class _ChatBotSheetState extends State<ChatBotSheet>
+    with WidgetsBindingObserver, AgentStreamHandler {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _messageScrollController = ScrollController();
   final DraggableScrollableController _sheetController =
@@ -76,6 +80,8 @@ class _ChatBotSheetState extends State<ChatBotSheet> with AgentStreamHandler {
   final TextEditingController _vlmAnswerController = TextEditingController();
   final GlobalKey<ChatInputAreaState> _chatInputAreaKey =
       GlobalKey<ChatInputAreaState>();
+  final KeyboardInsetMotionTracker _emptyGreetingKeyboardLiftTracker =
+      KeyboardInsetMotionTracker();
 
   late AiChatService _aiService;
   bool _isAiResponding = false;
@@ -262,6 +268,11 @@ class _ChatBotSheetState extends State<ChatBotSheet> with AgentStreamHandler {
   void initState() {
     super.initState();
 
+    WidgetsBinding.instance.addObserver(this);
+    HomeGreetingSettingsService.notifier.addListener(
+      _handleHomeGreetingSettingsChanged,
+    );
+    unawaited(HomeGreetingSettingsService.load());
     _aiService = AiChatService();
 
     _aiService.setOnMessageCallback((taskId, content, type) {
@@ -878,7 +889,44 @@ class _ChatBotSheetState extends State<ChatBotSheet> with AgentStreamHandler {
   }
 
   @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    _syncEmptyGreetingKeyboardLiftFromView();
+  }
+
+  void _syncEmptyGreetingKeyboardLiftFromView() {
+    if (!mounted) return;
+    final view = View.of(context);
+    final bottomInset = view.viewInsets.bottom / view.devicePixelRatio;
+    if (_emptyGreetingKeyboardLiftTracker.update(bottomInset)) {
+      setState(() {});
+    }
+  }
+
+  void _handleHomeGreetingSettingsChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _applyHomeQuickPrompt(HomeQuickPrompt prompt) {
+    final text = prompt.resolvePrompt(context).trim();
+    if (text.isEmpty) {
+      return;
+    }
+    _messageController.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _handleSlashCommandInput();
+    _inputFocusNode.requestFocus();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    HomeGreetingSettingsService.notifier.removeListener(
+      _handleHomeGreetingSettingsChanged,
+    );
     _messageController.removeListener(_handleSlashCommandInput);
     _messageController.dispose();
     _messageScrollController.dispose();
@@ -902,7 +950,10 @@ class _ChatBotSheetState extends State<ChatBotSheet> with AgentStreamHandler {
     super.dispose();
   }
 
-  void _onFocusChange() {}
+  void _onFocusChange() {
+    if (!mounted) return;
+    setState(() {});
+  }
 
   void _updateInputAreaMetrics() {
     final context = _inputAreaKey.currentContext;
@@ -2027,6 +2078,10 @@ class _ChatBotSheetState extends State<ChatBotSheet> with AgentStreamHandler {
     final screenHeight = MediaQuery.of(context).size.height;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final inputAreaHeight = _inputAreaHeight > 0 ? _inputAreaHeight : 72.0;
+    final liftEmptyGreeting = _emptyGreetingKeyboardLiftTracker.resolveForBuild(
+      bottomInset,
+    );
+    final homeGreetingSettings = HomeGreetingSettingsService.notifier.value;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateInputAreaMetrics();
     });
@@ -2067,55 +2122,90 @@ class _ChatBotSheetState extends State<ChatBotSheet> with AgentStreamHandler {
                     ),
                   ],
                 ),
-                child: Column(
+                child: Stack(
                   children: [
-                    // 拖动指示条 - 仅用于拖动整个 sheet 高度
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onVerticalDragUpdate: (details) {
-                        final delta = details.primaryDelta ?? 0;
-                        final currentSize = _sheetController.size;
-                        // 向上拖动(delta<0)增大size，向下拖动(delta>0)减小size
-                        final newSize = currentSize - (delta / screenHeight);
-                        _sheetController.jumpTo(newSize.clamp(0.4, 0.95));
-                      },
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.fromLTRB(0, 8, 0, 0),
-                        child: Center(
+                    Column(
+                      children: [
+                        // 拖动指示条 - 仅用于拖动整个 sheet 高度
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onVerticalDragUpdate: (details) {
+                            final delta = details.primaryDelta ?? 0;
+                            final currentSize = _sheetController.size;
+                            // 向上拖动(delta<0)增大size，向下拖动(delta>0)减小size
+                            final newSize =
+                                currentSize - (delta / screenHeight);
+                            _sheetController.jumpTo(newSize.clamp(0.4, 0.95));
+                          },
                           child: Container(
-                            width: 100,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFCCCCCC), // #CCCCCC
-                              borderRadius: BorderRadius.circular(4),
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(0, 8, 0, 0),
+                            child: Center(
+                              child: Container(
+                                width: 100,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFCCCCCC), // #CCCCCC
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        // AI 生成标识
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Align(
+                            alignment: Alignment.center,
+                            child: AiGeneratedBadge(),
+                          ),
+                        ),
+                        // 消息列表 - 使用 NotificationListener 阻止滚动事件影响 sheet
+                        Expanded(
+                          child: NotificationListener<ScrollNotification>(
+                            onNotification: (notification) {
+                              _handleMessageScrollNotification(notification);
+                              return true; // 阻止滚动事件冒泡到 sheet
+                            },
+                            child: _buildMessageList(),
+                          ),
+                        ),
+                        if (_vlmInfoQuestion != null) _buildVlmInfoPrompt(),
+                        // 输入框 - 根据 _isInputAreaVisible 控制显示
+                        if (_isInputAreaVisible) _buildInputArea(),
+                        SizedBox(height: bottomInset),
+                      ],
+                    ),
+                    if (_messages.isEmpty &&
+                        homeGreetingSettings.greetingEnabled)
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 280),
+                        curve: Curves.easeInOutCubic,
+                        left: 0,
+                        right: 0,
+                        top: liftEmptyGreeting ? 56 : 116,
+                        child: IgnorePointer(
+                          child: AnimatedAlign(
+                            duration: const Duration(milliseconds: 280),
+                            curve: Curves.easeInOutCubic,
+                            alignment: liftEmptyGreeting
+                                ? Alignment.centerLeft
+                                : Alignment.center,
+                            child: ChatEmptyGreeting(
+                              compact: true,
+                              primaryTextColor: const Color(0xFF353E53),
+                              secondaryTextColor: const Color(0xFF71809B),
+                              accentColor: Theme.of(
+                                context,
+                              ).colorScheme.primary,
+                              quickPrompts: homeGreetingSettings.quickPrompts,
+                              pinnedQuickPromptIds:
+                                  homeGreetingSettings.pinnedQuickPromptIds,
+                              onQuickPromptSelected: _applyHomeQuickPrompt,
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    // AI 生成标识
-                    const Padding(
-                      padding: EdgeInsets.only(top: 4),
-                      child: Align(
-                        alignment: Alignment.center,
-                        child: AiGeneratedBadge(),
-                      ),
-                    ),
-                    // 消息列表 - 使用 NotificationListener 阻止滚动事件影响 sheet
-                    Expanded(
-                      child: NotificationListener<ScrollNotification>(
-                        onNotification: (notification) {
-                          _handleMessageScrollNotification(notification);
-                          return true; // 阻止滚动事件冒泡到 sheet
-                        },
-                        child: _buildMessageList(),
-                      ),
-                    ),
-                    if (_vlmInfoQuestion != null) _buildVlmInfoPrompt(),
-                    // 输入框 - 根据 _isInputAreaVisible 控制显示
-                    if (_isInputAreaVisible) _buildInputArea(),
-                    SizedBox(height: bottomInset),
                   ],
                 ),
               ),
@@ -2142,32 +2232,12 @@ class _ChatBotSheetState extends State<ChatBotSheet> with AgentStreamHandler {
   }
 
   Widget _buildMessageList() {
-    final emptyStateBottomInset =
-        (_isInputAreaVisible
-                ? ((_inputAreaHeight > 0 ? _inputAreaHeight : 72.0) +
-                      MediaQuery.of(context).viewInsets.bottom +
-                      12)
-                : 0.0)
-            .clamp(0.0, double.infinity)
-            .toDouble();
     if (_messages.isEmpty) {
       // 使用 GestureDetector 阻止手势穿透到原生层
       return GestureDetector(
         onVerticalDragUpdate: (_) {},
         behavior: HitTestBehavior.opaque,
-        child: AnimatedPadding(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          padding: EdgeInsets.only(bottom: emptyStateBottomInset),
-          child: Center(
-            child: Text(
-              Localizations.localeOf(context).languageCode == 'en'
-                  ? 'How can I help you?'
-                  : '有什么可以帮助你的？',
-              style: const TextStyle(color: Color(0xFF999999), fontSize: 14),
-            ),
-          ),
-        ),
+        child: const SizedBox.expand(),
       );
     }
 

@@ -22,6 +22,20 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       ? ChatPageMode.codex
       : ChatPageMode.normal;
 
+  void _applyHomeQuickPrompt(HomeQuickPrompt prompt) {
+    final text = prompt.resolvePrompt(context).trim();
+    if (text.isEmpty) {
+      return;
+    }
+    _messageController.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _draftMessageByMode[_activeConversationMode] = text;
+    _handleSlashCommandInput();
+    _inputFocusNode.requestFocus();
+  }
+
   double _resolveNormalSurfaceComposerInset({
     required double inputBottomPadding,
     required double keyboardSpacer,
@@ -819,6 +833,11 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       mode: mode,
       snapshot: toolActivitySnapshot,
     );
+    final bottomInset = MediaQuery.maybeOf(context)?.viewInsets.bottom ?? 0.0;
+    final liftEmptyGreeting =
+        mode == _activeMode &&
+        _emptyGreetingKeyboardLiftTracker.resolveForBuild(bottomInset);
+    final homeGreetingSettings = HomeGreetingSettingsService.notifier.value;
     return ChatMessageList(
       messages: resolvedMessages,
       activeAgentTaskIds: activeAgentTaskIds,
@@ -826,6 +845,12 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       onExpandedAgentRunTaskIdsChanged: (taskIds) {
         _updateExpandedAgentRunTaskIds(mode, taskIds);
       },
+      showEmptyGreeting: homeGreetingSettings.greetingEnabled,
+      liftEmptyGreeting: liftEmptyGreeting,
+      emptyGreetingQuickPrompts: homeGreetingSettings.quickPrompts,
+      emptyGreetingPinnedQuickPromptIds:
+          homeGreetingSettings.pinnedQuickPromptIds,
+      onQuickPromptSelected: _applyHomeQuickPrompt,
       scrollController: _scrollControllerForMode(mode),
       bottomOverlayInset:
           bottomOverlayInset +

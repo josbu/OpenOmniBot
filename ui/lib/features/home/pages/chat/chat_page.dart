@@ -37,6 +37,7 @@ import 'package:ui/services/conversation_model_override_service.dart';
 import 'package:ui/services/conversation_history_service.dart';
 import 'package:ui/services/conversation_service.dart';
 import 'package:ui/services/device_service.dart';
+import 'package:ui/services/home_greeting_settings_service.dart';
 import 'package:ui/services/link_preview_service.dart';
 import 'package:ui/services/model_provider_config_service.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
@@ -55,6 +56,7 @@ import 'package:ui/features/home/pages/chat/utils/agent_runtime_attachment_paylo
 import 'package:ui/features/home/pages/chat/utils/agent_thinking_card_locator.dart';
 import 'package:ui/features/home/pages/chat/utils/codex_slash_commands.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
+import 'package:ui/features/home/pages/chat/utils/keyboard_inset_motion_tracker.dart';
 import 'package:ui/widgets/chat_drawer_gesture_guard.dart';
 
 // 导入 Mixins
@@ -180,6 +182,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     ChatPageMode.openclaw: '',
     ChatPageMode.codex: '',
   };
+  final KeyboardInsetMotionTracker _emptyGreetingKeyboardLiftTracker =
+      KeyboardInsetMotionTracker();
   final Map<ChatPageMode, ChatIslandDisplayLayer>
   _chatIslandDisplayLayerByMode = {
     ChatPageMode.normal: ChatIslandDisplayLayer.model,
