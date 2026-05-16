@@ -294,9 +294,10 @@ class ChatInputAreaState extends _ChatInputAreaStateBase
     with _ChatInputAreaComposerMixin, _ChatInputAreaPopupMixin {}
 
 abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late ValueNotifier<bool> _hasTextNotifier;
   late ValueNotifier<bool> _isFocusedNotifier;
+  late ValueNotifier<bool> _isKeyboardVisibleNotifier;
   bool _isPopupVisible = false;
 
   final ScrollController _textFieldScrollController = ScrollController();
@@ -320,10 +321,14 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
   @override
   void initState() {
     super.initState();
-    _hasTextNotifier = ValueNotifier<bool>(false);
+    _hasTextNotifier = ValueNotifier<bool>(
+      widget.controller.text.trim().isNotEmpty,
+    );
     _isFocusedNotifier = ValueNotifier<bool>(false);
+    _isKeyboardVisibleNotifier = ValueNotifier<bool>(false);
     widget.controller.addListener(_onTextChanged);
     widget.focusNode.addListener(_onFocusChanged);
+    WidgetsBinding.instance.addObserver(this);
 
     _terminalSvg = const SizedBox.shrink();
     _sendSvg = const SizedBox.shrink();
@@ -483,6 +488,24 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
   }
 
   @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    _syncKeyboardVisibilityFromView();
+  }
+
+  void _syncKeyboardVisibilityFromView() {
+    if (!mounted) return;
+    final view = View.of(context);
+    final bottomInset = view.viewInsets.bottom / view.devicePixelRatio;
+    final isVisible = bottomInset > 0.5;
+    if (_isKeyboardVisibleNotifier.value == isVisible) {
+      return;
+    }
+    _isKeyboardVisibleNotifier.value = isVisible;
+    _reportInputHeightAfterBuild();
+  }
+
+  @override
   void didUpdateWidget(covariant ChatInputArea oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.attachments != widget.attachments ||
@@ -495,9 +518,11 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _textFieldScrollController.dispose();
     _hasTextNotifier.dispose();
     _isFocusedNotifier.dispose();
+    _isKeyboardVisibleNotifier.dispose();
     _composerFlowController.dispose();
     widget.controller.removeListener(_onTextChanged);
     widget.focusNode.removeListener(_onFocusChanged);
