@@ -879,8 +879,8 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
           scrollController: _textFieldScrollController,
           keyboardType: keyboardType,
           textInputAction: textInputAction,
-          minLines: 1,
-          maxLines: multiline ? 2 : 1,
+          minLines: multiline ? 2 : 1,
+          maxLines: multiline ? 3 : 1,
           scrollPhysics: const ClampingScrollPhysics(),
           onSubmitted: multiline
               ? null

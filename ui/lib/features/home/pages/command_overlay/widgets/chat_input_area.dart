@@ -14,6 +14,8 @@ part 'chat_input_area_composer.dart';
 part 'chat_input_area_popup.dart';
 
 const String _kInputTerminalIconAsset = 'assets/home/input_terminal_icon.svg';
+const String _kInputAttachmentIconAsset =
+    'assets/home/input_attachment_cross_icon.svg';
 
 const String _kLucideCommandSvg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" '
@@ -385,42 +387,34 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
             height: 20,
           );
     _addSvg = context.isDarkTheme
-        ? _buildDarkActionButtonIcon(
-            size: 20,
-            backgroundColor: palette.surfaceSecondary,
-            borderColor: palette.borderSubtle,
-            foreground: Icon(
-              Icons.add_rounded,
-              size: 14,
-              color: palette.textPrimary,
-            ),
-          )
-        : _buildComposerIconAsset(
-            'assets/home/input_add_icon.svg',
+        ? _buildComposerIconAsset(
+            _kInputAttachmentIconAsset,
             width: 20,
             height: 20,
+            color: palette.accentPrimary,
+          )
+        : _buildComposerIconAsset(
+            _kInputAttachmentIconAsset,
+            width: 20,
+            height: 20,
+            color: palette.accentPrimary,
           );
     _commandSvg = context.isDarkTheme
-        ? _buildDarkActionButtonIcon(
-            size: 20,
-            backgroundColor: palette.surfaceSecondary,
-            borderColor: palette.borderSubtle,
-            foreground: SvgPicture.string(
-              _kLucideCommandSvg,
-              width: 12,
-              height: 12,
-              colorFilter: ColorFilter.mode(
-                palette.textPrimary,
-                BlendMode.srcIn,
-              ),
+        ? SvgPicture.string(
+            _kLucideCommandSvg,
+            width: 20,
+            height: 20,
+            colorFilter: ColorFilter.mode(
+              palette.accentPrimary,
+              BlendMode.srcIn,
             ),
           )
         : SvgPicture.string(
             _kLucideCommandSvg,
             width: 20,
             height: 20,
-            colorFilter: const ColorFilter.mode(
-              Color(0xFF54627A),
+            colorFilter: ColorFilter.mode(
+              palette.accentPrimary,
               BlendMode.srcIn,
             ),
           );
@@ -430,8 +424,16 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     String assetPath, {
     required double width,
     required double height,
+    Color? color,
   }) {
-    return SvgPicture.asset(assetPath, width: width, height: height);
+    return SvgPicture.asset(
+      assetPath,
+      width: width,
+      height: height,
+      colorFilter: color == null
+          ? null
+          : ColorFilter.mode(color, BlendMode.srcIn),
+    );
   }
 
   Widget _buildDarkActionButtonIcon({

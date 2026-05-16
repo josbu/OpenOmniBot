@@ -184,7 +184,8 @@ void main() {
     final field = tester.widget<TextField>(find.byType(TextField));
     expect(field.keyboardType, TextInputType.multiline);
     expect(field.textInputAction, TextInputAction.newline);
-    expect(field.maxLines, 2);
+    expect(field.minLines, 2);
+    expect(field.maxLines, 3);
   });
 
   testWidgets('compact composer keeps send action', (tester) async {
