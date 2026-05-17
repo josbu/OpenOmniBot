@@ -204,8 +204,8 @@ class _ExperienceMiscSettingPageState
           ),
           _SettingItem(
             icon: Icons.keyboard_return_rounded,
-            title: context.trLegacy('使用独立的发送按钮'),
-            subtitle: context.trLegacy('开启后，聊天页键盘回车为换行；关闭后，回车直接发送'),
+            title: context.l10n.settingsIndependentSendButtonTitle,
+            subtitle: context.l10n.settingsIndependentSendButtonSubtitle,
             trailing: _buildSwitchTrailing(
               value: _useIndependentChatSendButton,
               onToggle: _onIndependentChatSendButtonChanged,
