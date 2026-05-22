@@ -34,8 +34,8 @@ object TaskRuntimeSettings {
     private const val KEY_NOTIFY = "task_completion_notification_enabled"
     private const val FLUTTER_KEY_PREVENT_SLEEP = "flutter.$KEY_PREVENT_SLEEP"
     private const val FLUTTER_KEY_NOTIFY = "flutter.$KEY_NOTIFY"
-    private const val CHANNEL_ID = "task_completion_v2"
-    private const val QUIET_CHANNEL_ID = "task_completion_badge_only_v1"
+    private const val CHANNEL_ID = "task_completion_heads_up_v3"
+    private const val OVERLAY_ALERT_CHANNEL_ID = "task_completion_overlay_alert_v1"
     private const val KEY_ACTIVE_NOTIFICATION_ENTRIES = "task_completion_active_notification_entries"
     private const val KEY_NOTIFICATION_COUNTER = "task_completion_notification_counter"
     private const val EXTRA_NOTIFICATION_ID = "task_completion_notification_id"
@@ -52,6 +52,9 @@ object TaskRuntimeSettings {
 
     @Volatile
     private var isAppInForeground = false
+
+    @Volatile
+    private var isChatPageVisible = false
 
     @Volatile
     private var currentVisibleConversationId: Long? = null
@@ -149,13 +152,15 @@ object TaskRuntimeSettings {
     fun setVisibleConversation(
         context: Context,
         conversationId: Long?,
-        conversationMode: String?
+        conversationMode: String?,
+        visible: Boolean = conversationId?.let { it > 0 } == true
     ) {
-        currentVisibleConversationId = conversationId?.takeIf { it > 0 }
+        isChatPageVisible = visible
+        currentVisibleConversationId = if (visible) conversationId?.takeIf { it > 0 } else null
         currentVisibleConversationMode = conversationMode?.trim()?.ifEmpty { "normal" } ?: "normal"
-        if (currentVisibleConversationId != null) {
+        if (isChatPageVisible) {
             clearOverlayHint()
-            clearTaskCompletionNotificationsForConversation(
+            clearTaskCompletionNotificationsForVisibleChat(
                 context = context,
                 conversationId = currentVisibleConversationId,
                 conversationMode = currentVisibleConversationMode
@@ -196,24 +201,18 @@ object TaskRuntimeSettings {
         conversationMode: String? = null
     ) {
         if (!isTaskCompletionNotificationEnabled(context)) return
-        val petHintShown = showOverlayHint(compactOverlayCompletionText(title, message))
-        val suppressSystemNotification = shouldSuppressNotificationForVisibleConversation(
-            conversationId,
-            conversationMode
-        )
-        if (suppressSystemNotification) {
-            clearTaskCompletionNotificationsForConversation(
+        if (shouldSuppressNotificationForVisibleConversation(conversationId, conversationMode)) {
+            clearOverlayHint()
+            clearTaskCompletionNotificationsForVisibleChat(
                 context = context,
                 conversationId = conversationId,
                 conversationMode = conversationMode
             )
             return
         }
-        if (petHintShown) {
-            playTaskCompletionAlertSound(context)
-        }
+        val petHintShown = showOverlayHint(compactOverlayCompletionText(title, message))
         if (!canPostNotification(context)) return
-        ensureChannel(context, petHintShown)
+        ensureChannel(context, quiet = petHintShown)
         val route = TaskCompletionNavigator.buildChatRoute(conversationId, conversationMode)
         val notificationId = nextNotificationId(context)
         val normalizedMode = normalizeConversationMode(conversationMode)
@@ -244,7 +243,7 @@ object TaskRuntimeSettings {
         val body = message.ifBlank { "Task completed. Tap to view details." }
         val notification = NotificationCompat.Builder(
             context,
-            if (petHintShown) QUIET_CHANNEL_ID else CHANNEL_ID
+            if (petHintShown) OVERLAY_ALERT_CHANNEL_ID else CHANNEL_ID
         )
             .setSmallIcon(context.applicationInfo.icon.takeIf { it != 0 } ?: R.mipmap.ic_launcher)
             .setContentTitle(title.ifBlank { "Omnibot task completed" })
@@ -265,13 +264,14 @@ object TaskRuntimeSettings {
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
             .apply {
                 if (petHintShown) {
-                    setSilent(true)
-                    setDefaults(0)
-                    priority = NotificationCompat.PRIORITY_MIN
+                    setDefaults(NotificationCompat.DEFAULT_ALL)
+                    priority = NotificationCompat.PRIORITY_DEFAULT
+                    setVibrate(longArrayOf(0, 250, 120, 250))
                     setLocalOnly(true)
                 } else {
                     setDefaults(NotificationCompat.DEFAULT_ALL)
                     priority = NotificationCompat.PRIORITY_HIGH
+                    setVibrate(longArrayOf(0, 250, 120, 250))
                 }
             }
             .build()
@@ -368,49 +368,68 @@ object TaskRuntimeSettings {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun ensureChannel(context: Context, petHintShown: Boolean) {
+    private fun ensureChannel(context: Context, quiet: Boolean) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java)
-        if (petHintShown) {
+        if (quiet) {
             manager.createNotificationChannel(
                 NotificationChannel(
-                    QUIET_CHANNEL_ID,
-                    "Task completion badge reminders",
-                    NotificationManager.IMPORTANCE_MIN
+                    OVERLAY_ALERT_CHANNEL_ID,
+                    "Task completion overlay alerts",
+                    NotificationManager.IMPORTANCE_DEFAULT
                 ).apply {
-                    description = "Badge-only task completion reminders; the floating pet handles alerts"
+                    description = "Sound and vibration alerts when the floating Omnibot bubble shows task completion"
                     enableLights(false)
-                    enableVibration(false)
-                    setSound(null, null)
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 250, 120, 250)
+                    val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                    val attributes = AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                    setSound(soundUri, attributes)
                     lockscreenVisibility = Notification.VISIBILITY_SECRET
                     setShowBadge(true)
                 }
             )
-        } else {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "Task completion reminders",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "Reminders after Agent, Codex, and chat tasks finish"
-                    enableLights(true)
-                    enableVibration(true)
-                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                    setShowBadge(true)
-                }
-            )
+            return
         }
+
+        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val attributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                "Task completion reminders",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Reminders after Agent, Codex, and chat tasks finish"
+                enableLights(true)
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 250, 120, 250)
+                setSound(soundUri, attributes)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                setShowBadge(true)
+            }
+        )
     }
 
     private fun shouldSuppressNotificationForVisibleConversation(
         conversationId: Long?,
         conversationMode: String?
     ): Boolean {
-        if (!isAppInForeground) return false
-        val targetId = conversationId?.takeIf { it > 0 } ?: return false
+        if (!isAppInForeground || !isChatPageVisible) return false
+        val targetId = conversationId?.takeIf { it > 0 } ?: return true
+        val visibleId = currentVisibleConversationId
+        if (visibleId == null) {
+            return normalizeConversationMode(currentVisibleConversationMode) ==
+                normalizeConversationMode(conversationMode)
+        }
         return sameConversationTarget(
-            leftConversationId = currentVisibleConversationId,
+            leftConversationId = visibleId,
             leftConversationMode = currentVisibleConversationMode,
             rightConversationId = targetId,
             rightConversationMode = conversationMode
@@ -434,16 +453,36 @@ object TaskRuntimeSettings {
     }
 
     private fun compactOverlayCompletionText(title: String, message: String): String {
-        val text = "$title $message"
-        return when {
-            text.contains("Codex", ignoreCase = true) -> "Codex 任务完成"
-            text.contains("chat", ignoreCase = true) ||
-                text.contains("聊天") ||
-                text.contains("回复") -> "回复完成"
-            text.contains("结束") ||
-                text.contains("ended", ignoreCase = true) -> "任务已结束"
+        val cleanedMessage = sanitizeCompletionText(message)
+        val cleanedTitle = sanitizeCompletionText(title)
+        val text = when {
+            cleanedMessage.isNotBlank() &&
+                !isGenericCompletionMessage(cleanedMessage) -> cleanedMessage
+            cleanedTitle.isNotBlank() && cleanedMessage.isNotBlank() -> "$cleanedTitle：$cleanedMessage"
+            cleanedTitle.isNotBlank() -> cleanedTitle
+            cleanedMessage.isNotBlank() -> cleanedMessage
             else -> "任务已完成"
         }
+        return text.limitForOverlay()
+    }
+
+    private fun sanitizeCompletionText(value: String): String =
+        value.replace(Regex("\\s+"), " ").trim()
+
+    private fun isGenericCompletionMessage(value: String): Boolean {
+        val normalized = value.trim()
+        return normalized.equals("任务完成", ignoreCase = true) ||
+            normalized.equals("任务已完成", ignoreCase = true) ||
+            normalized.equals("任务已完成，点击查看详情", ignoreCase = true) ||
+            normalized.equals("任务已完成，点击查看详情。", ignoreCase = true) ||
+            normalized.equals("Task completed", ignoreCase = true) ||
+            normalized.equals("Task completed. Tap to view details.", ignoreCase = true) ||
+            normalized.equals("Tap to view details.", ignoreCase = true)
+    }
+
+    private fun String.limitForOverlay(maxLength: Int = 48): String {
+        if (length <= maxLength) return this
+        return take(maxLength - 1).trimEnd() + "…"
     }
     private fun playTaskCompletionAlertSound(context: Context) {
         runCatching {
@@ -511,6 +550,46 @@ object TaskRuntimeSettings {
             }
         }
         persistActiveNotificationEntries(context, remainingEntries)
+    }
+
+    private fun clearTaskCompletionNotificationsForVisibleChat(
+        context: Context,
+        conversationId: Long?,
+        conversationMode: String?
+    ) {
+        val targetId = conversationId?.takeIf { it > 0 }
+        if (targetId == null) {
+            clearAllTaskCompletionNotifications(context)
+            return
+        }
+        val normalizedMode = normalizeConversationMode(conversationMode)
+        val allEntries = readActiveNotificationEntries(context)
+        if (allEntries.isEmpty()) return
+        val remainingEntries = mutableSetOf<ActiveNotificationEntry>()
+        allEntries.forEach { entry ->
+            val shouldCancel = entry.conversationId == null ||
+                sameConversationTarget(
+                    leftConversationId = entry.conversationId,
+                    leftConversationMode = entry.conversationMode,
+                    rightConversationId = targetId,
+                    rightConversationMode = normalizedMode
+                )
+            if (shouldCancel) {
+                NotificationManagerCompat.from(context).cancel(entry.id)
+            } else {
+                remainingEntries.add(entry)
+            }
+        }
+        persistActiveNotificationEntries(context, remainingEntries)
+    }
+
+    private fun clearAllTaskCompletionNotifications(context: Context) {
+        val allEntries = readActiveNotificationEntries(context)
+        if (allEntries.isEmpty()) return
+        allEntries.forEach { entry ->
+            NotificationManagerCompat.from(context).cancel(entry.id)
+        }
+        persistActiveNotificationEntries(context, emptySet())
     }
 
     private fun readActiveNotificationEntries(context: Context): Set<ActiveNotificationEntry> {

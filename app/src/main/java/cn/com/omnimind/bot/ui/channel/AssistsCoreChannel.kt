@@ -283,6 +283,9 @@ class AssistsCoreChannel {
                 "setTaskCompletionNotificationEnabled" -> {
                     assistsCoreManager!!.setTaskCompletionNotificationEnabled(call, result)
                 }
+                "setVisibleChatConversation" -> {
+                    assistsCoreManager!!.setVisibleChatConversation(call, result)
+                }
                 "showTaskCompletionNotification" -> {
                     assistsCoreManager!!.showTaskCompletionNotification(call, result)
                 }

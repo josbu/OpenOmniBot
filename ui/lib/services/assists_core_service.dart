@@ -1441,6 +1441,27 @@ class AssistsMessageService {
     }
   }
 
+  static Future<bool> setVisibleChatConversation({
+    int? conversationId,
+    String? conversationMode,
+    bool visible = true,
+  }) async {
+    try {
+      final result = await assistCore.invokeMethod<String>(
+        'setVisibleChatConversation',
+        {
+          'conversationId': conversationId ?? 0,
+          'visible': visible,
+          if (conversationMode != null) 'mode': conversationMode,
+        },
+      );
+      return result == 'SUCCESS';
+    } on PlatformException catch (e) {
+      print('Failed to sync visible chat conversation: ${e.message}');
+      return false;
+    }
+  }
+
   static Future<bool> showTaskCompletionNotification({
     required String title,
     required String message,

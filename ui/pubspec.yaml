@@ -98,6 +98,7 @@ flutter:
     - assets/images/
     - assets/avatar/
     - assets/home/
+    - assets/home/chat/
     - assets/welcome/
     - assets/common/
     - assets/memory/

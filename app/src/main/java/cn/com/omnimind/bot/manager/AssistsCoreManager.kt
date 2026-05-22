@@ -5840,6 +5840,23 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
+    fun setVisibleChatConversation(
+        call: MethodCall,
+        result: MethodChannel.Result
+    ) {
+        val visible = call.argument<Boolean>("visible") ?: true
+        val conversationId = when (val raw = call.argument<Any>("conversationId")) {
+            is Number -> raw.toLong()
+            is String -> raw.toLongOrNull()
+            else -> null
+        }?.takeIf { it > 0 }
+        val mode = (call.argument<String>("mode") ?: "normal").trim().ifEmpty { "normal" }
+        TaskRuntimeSettings.setVisibleConversation(context, conversationId, mode, visible)
+        mainJob.launch(Dispatchers.Main) {
+            result.success("SUCCESS")
+        }
+    }
+
     /**
      * 完成对话
      */
@@ -5869,7 +5886,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val mode = (call.argument<String>("mode") ?: "normal").trim().ifEmpty { "normal" }
         currentConversationId = if (conversationId > 0) conversationId else null
         currentConversationMode = mode
-        TaskRuntimeSettings.setVisibleConversation(context, currentConversationId, currentConversationMode)
         mainJob.launch(Dispatchers.Main) {
             result.success("SUCCESS")
         }

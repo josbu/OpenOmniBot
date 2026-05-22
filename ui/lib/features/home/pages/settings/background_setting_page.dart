@@ -23,6 +23,8 @@ import 'package:ui/widgets/omni_segmented_slider.dart';
 import 'package:ui/widgets/settings_section_title.dart';
 import 'package:ui/widgets/theme_mode_setting_card.dart';
 
+const bool _showPetAppearanceSettings = false;
+
 class _AppearanceTextColorPreset {
   final String label;
   final String hex;
@@ -183,11 +185,13 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
     _remoteUrlController.addListener(_handleRemoteUrlChanged);
     _textColorController.addListener(_handleTextColorChanged);
     _scheduleDraftVisualProfileRefresh();
-    unawaited(_loadPetSettings());
-    _petRefreshTimer = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (!mounted || !_petExpanded || _petBusy) return;
+    if (_showPetAppearanceSettings) {
       unawaited(_loadPetSettings());
-    });
+      _petRefreshTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+        if (!mounted || !_petExpanded || _petBusy) return;
+        unawaited(_loadPetSettings());
+      });
+    }
   }
 
   @override
@@ -520,9 +524,11 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
               const SizedBox(height: 18),
               SettingsSectionTitle(label: context.l10n.appearanceAdjustments),
               _buildAdjustCard(),
-              const SizedBox(height: 18),
-              SettingsSectionTitle(label: '宠物'),
-              _buildPetCard(),
+              if (_showPetAppearanceSettings) ...[
+                const SizedBox(height: 18),
+                SettingsSectionTitle(label: '宠物'),
+                _buildPetCard(),
+              ],
             ],
           ),
         ),
