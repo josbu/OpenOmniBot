@@ -466,20 +466,30 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       final deviceInfo = await DeviceService.getDeviceInfo();
       if (!mounted) return;
       final brand = (deviceInfo?['brand'] as String?)?.toLowerCase() ?? 'other';
-      final checkedSpecs = PermissionRegistry.getPermissionsByLevel(
+      final companionSpecs = PermissionRegistry.getPermissionsByLevel(
         brand: brand,
-        level: PermissionLevel.fullExecution,
+        level: PermissionLevel.companionAutomation,
       );
+      final accessibilitySpecs = PermissionRegistry.getPermissions(
+        brand: brand,
+      ).where((spec) => spec.id == kAccessibilityPermissionId);
+      final checkedSpecs = <PermissionSpec>[
+        ...companionSpecs,
+        ...accessibilitySpecs.where(
+          (spec) => companionSpecs.every((item) => item.id != spec.id),
+        ),
+      ];
       final permissionDataList = PermissionService.specsToPermissionData(
         checkedSpecs,
         context: context,
       );
       await PermissionService.checkPermissions(permissionDataList);
-      final allAuthorized = PermissionService.checkAllAuthorized(
+      final canStartCompanion = PermissionService.checkAuthorizedByIds(
         permissionDataList,
+        const {kOverlayPermissionId},
       );
 
-      if (!allAuthorized) {
+      if (!canStartCompanion) {
         if (!mounted) return;
         setState(() {
           _isCompanionToggleLoading = false;
@@ -488,6 +498,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
           context,
           initialPermissions: permissionDataList,
           deviceBrand: brand,
+          requiredPermissionIds: const {kOverlayPermissionId},
           onAllAuthorized: () {
             unawaited(_executeCompanionStart());
           },
@@ -496,6 +507,23 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       }
 
       await _executeCompanionStart();
+      if (!mounted || !_isCompanionModeEnabled) {
+        return;
+      }
+      final accessibilityAuthorized = PermissionService.checkAuthorizedByIds(
+        permissionDataList,
+        const {kAccessibilityPermissionId},
+      );
+      if (!accessibilityAuthorized && mounted) {
+        await PermissionBottomSheet.show(
+          context,
+          initialPermissions: permissionDataList,
+          deviceBrand: brand,
+          buttonText: LegacyTextLocalizer.isEnglish ? 'Got it' : '我知道了',
+          requiredPermissionIds: const {kOverlayPermissionId},
+          onAllAuthorized: () {},
+        );
+      }
     } catch (e) {
       debugPrint('开启陪伴前置检查失败: $e');
       if (!mounted) return;

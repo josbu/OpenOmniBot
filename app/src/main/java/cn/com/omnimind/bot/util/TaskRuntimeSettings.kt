@@ -210,12 +210,17 @@ object TaskRuntimeSettings {
             )
             return
         }
-        val petHintShown = showOverlayHint(compactOverlayCompletionText(title, message))
+        val normalizedMode = normalizeConversationMode(conversationMode)
+        val petHintShown = showOverlayHint(
+            context = context,
+            message = compactOverlayCompletionText(title, message),
+            conversationId = conversationId,
+            conversationMode = normalizedMode
+        )
         if (!canPostNotification(context)) return
         ensureChannel(context, quiet = petHintShown)
         val route = TaskCompletionNavigator.buildChatRoute(conversationId, conversationMode)
         val notificationId = nextNotificationId(context)
-        val normalizedMode = normalizeConversationMode(conversationMode)
         val intent = Intent(context, MainActivity::class.java).apply {
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -613,11 +618,23 @@ object TaskRuntimeSettings {
             .apply()
     }
 
-    private fun showOverlayHint(message: String): Boolean {
+    private fun showOverlayHint(
+        context: Context,
+        message: String,
+        conversationId: Long?,
+        conversationMode: String?
+    ): Boolean {
+        val appContext = context.applicationContext
         return runCatching {
             DraggableBallInstance.showTaskCompletionHint(
                 message.ifBlank { "Task completed" }
-            )
+            ) {
+                TaskCompletionNavigator.navigateBackToChat(
+                    appContext,
+                    conversationId,
+                    conversationMode
+                )
+            }
         }.getOrElse {
             OmniLog.w(TAG, "show overlay completion hint failed: ${it.message}")
             false
@@ -632,4 +649,3 @@ object TaskRuntimeSettings {
         }
     }
 }
-

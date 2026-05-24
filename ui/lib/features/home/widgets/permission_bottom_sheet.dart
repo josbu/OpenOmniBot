@@ -19,12 +19,16 @@ class PermissionBottomSheet extends StatefulWidget {
   /// 按钮文案（可选，默认为"开启陪伴"）
   final String buttonText;
 
+  /// 控制底部按钮是否可继续的权限 ID。为空时要求所有展示权限均已授权。
+  final Set<String> requiredPermissionIds;
+
   const PermissionBottomSheet({
     super.key,
     this.onAllAuthorized,
     required this.initialPermissions,
     required this.deviceBrand,
     this.buttonText = '开启陪伴',
+    this.requiredPermissionIds = const <String>{},
   });
 
   /// 显示权限弹窗
@@ -34,6 +38,7 @@ class PermissionBottomSheet extends StatefulWidget {
     required List<PermissionData> initialPermissions,
     required String deviceBrand,
     String buttonText = '开启陪伴',
+    Set<String> requiredPermissionIds = const <String>{},
   }) {
     return showModalBottomSheet(
       context: context,
@@ -44,6 +49,7 @@ class PermissionBottomSheet extends StatefulWidget {
         initialPermissions: initialPermissions,
         deviceBrand: deviceBrand,
         buttonText: buttonText,
+        requiredPermissionIds: requiredPermissionIds,
       ),
     );
   }
@@ -66,11 +72,18 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
     // 使用预加载的数据
     permissions = widget.initialPermissions;
     _isCompactMode = permissions.length >= 5;
-    allAuthorized.value = PermissionService.checkAllAuthorized(permissions);
+    allAuthorized.value = _canContinue();
   }
 
   void _checkAllAuthorized() {
-    allAuthorized.value = PermissionService.checkAllAuthorized(permissions);
+    allAuthorized.value = _canContinue();
+  }
+
+  bool _canContinue() {
+    return PermissionService.checkAuthorizedByIds(
+      permissions,
+      widget.requiredPermissionIds,
+    );
   }
 
   Future<void> _checkPermissions() async {
@@ -194,7 +207,8 @@ class _PermissionBottomSheetState extends State<PermissionBottomSheet>
                       ),
                       child: Center(
                         child: Text(
-                          Localizations.localeOf(context).languageCode == 'en' &&
+                          Localizations.localeOf(context).languageCode ==
+                                      'en' &&
                                   widget.buttonText == '开启陪伴'
                               ? 'Enable Companion'
                               : widget.buttonText,

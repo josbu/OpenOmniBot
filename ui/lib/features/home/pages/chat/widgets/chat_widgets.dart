@@ -146,7 +146,8 @@ class ChatAppBar extends StatelessWidget {
     const updateTint = Color(0xFFD4A017);
     final showWorkspaceButton =
         showWorkspacePaneButton && onWorkspacePaneTap != null;
-    const showUpdateShortcutButton = true;
+    final showUpdateShortcutButton =
+        showAppUpdateIndicator && onAppUpdateTap != null;
     const showModeShortcutButton = true;
     final appBarBackgroundColor = showSurfaceSwitcher
         ? palette.pageBackground
@@ -289,7 +290,8 @@ class ChatAppBar extends StatelessWidget {
                             key: const ValueKey('chat-app-update-button'),
                             onTap: onAppUpdateTap,
                             child: Tooltip(
-                              message: appUpdateTooltip ??
+                              message:
+                                  appUpdateTooltip ??
                                   (LegacyTextLocalizer.isEnglish
                                       ? 'Check for updates'
                                       : '检查更新'),
