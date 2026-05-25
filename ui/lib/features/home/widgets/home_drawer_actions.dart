@@ -323,6 +323,53 @@ extension _HomeDrawerActions on HomeDrawerState {
     );
   }
 
+  Future<void> _setConversationPinned(
+    ConversationModel conversation, {
+    required bool pinned,
+  }) async {
+    if (_busyConversationKeys.contains(conversation.threadKey)) {
+      return;
+    }
+
+    final originalIndex = _allConversations.indexWhere(
+      (item) => item.threadKey == conversation.threadKey,
+    );
+    if (originalIndex < 0) {
+      return;
+    }
+
+    final originalConversation = _allConversations[originalIndex];
+    final updatedConversation = originalConversation.copyWith(isPinned: pinned);
+
+    setState(() {
+      _busyConversationKeys.add(conversation.threadKey);
+      _replaceConversationInState(updatedConversation);
+    });
+    _persistCurrentConversationSnapshot();
+
+    final updated = await ConversationService.updateConversation(
+      updatedConversation,
+    );
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _busyConversationKeys.remove(conversation.threadKey);
+      if (!updated) {
+        _replaceConversationInState(originalConversation);
+      }
+    });
+    _persistCurrentConversationSnapshot();
+
+    showToast(
+      updated
+          ? (pinned ? context.trLegacy('已置顶') : context.trLegacy('已取消置顶'))
+          : (pinned ? context.trLegacy('置顶失败') : context.trLegacy('取消置顶失败')),
+      type: updated ? ToastType.success : ToastType.error,
+    );
+  }
+
   List<ConversationSlideAction> _buildDrawerActions(
     ConversationModel conversation,
   ) {
@@ -333,6 +380,27 @@ extension _HomeDrawerActions on HomeDrawerState {
         child: Center(
           child: SvgPicture.asset(
             'assets/memory/memory_delete.svg',
+            width: HomeDrawerState._conversationActionIconSize,
+            height: HomeDrawerState._conversationActionIconSize,
+            colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
+          ),
+        ),
+      ),
+      ConversationSlideAction(
+        onPressed: () => _setConversationPinned(
+          conversation,
+          pinned: !conversation.isPinned,
+        ),
+        backgroundColor: context.isDarkTheme
+            ? Color.lerp(
+                context.omniPalette.surfaceElevated,
+                context.omniPalette.accentPrimary,
+                0.18,
+              )!
+            : AppColors.text.withValues(alpha: 0.72),
+        child: Center(
+          child: SvgPicture.asset(
+            'assets/home/pin_icon.svg',
             width: HomeDrawerState._conversationActionIconSize,
             height: HomeDrawerState._conversationActionIconSize,
             colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),

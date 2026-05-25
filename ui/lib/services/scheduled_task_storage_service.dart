@@ -19,6 +19,11 @@ class ScheduledTaskStorageService {
 
   /// 加载所有定时任务
   static Future<List<ScheduledTask>> loadScheduledTasks() async {
+    return loadScheduledTasksSync();
+  }
+
+  /// 同步读取已缓存的定时任务，用于页面首帧恢复。
+  static List<ScheduledTask> loadScheduledTasksSync() {
     try {
       final jsonList = StorageService.getStringList(_scheduledTasksKey);
 

@@ -24,6 +24,18 @@ class _ConversationSection {
   final List<_ConversationSearchResult> results;
 }
 
+class _ScheduledConversationGroup {
+  const _ScheduledConversationGroup({
+    required this.parent,
+    required this.children,
+    required this.taskCount,
+  });
+
+  final ConversationModel parent;
+  final List<_ConversationSearchResult> children;
+  final int taskCount;
+}
+
 class _ConversationSearchIndex {
   const _ConversationSearchIndex({
     required this.signature,

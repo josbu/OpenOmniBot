@@ -14,10 +14,12 @@ import 'package:ui/features/home/widgets/home_drawer_search_field.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/models/conversation_model.dart';
 import 'package:ui/models/conversation_thread_target.dart';
+import 'package:ui/models/scheduled_task.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/conversation_history_service.dart';
 import 'package:ui/services/conversation_service.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
+import 'package:ui/services/scheduled_task_storage_service.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -146,6 +148,7 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
   int _searchGeneration = 0;
   Timer? _searchDebounceTimer;
   String? _editingThreadKey;
+  List<ScheduledTask> _scheduledTasks = <ScheduledTask>[];
   StreamSubscription<Map<String, dynamic>>?
   _conversationListChangedSubscription;
 
@@ -195,8 +198,6 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 16),
-            _buildUserHeader(),
-            const SizedBox(height: 20),
             Expanded(child: _buildConversationSection()),
             const SizedBox(height: 12),
             _buildFooterShortcutBar(),

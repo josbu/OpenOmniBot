@@ -5,6 +5,10 @@ part of 'home_drawer.dart';
 extension _HomeDrawerConversationList on HomeDrawerState {
   Widget _buildConversationSection() {
     final visibleConversationResults = _visibleConversationResults;
+    final hasPromotedConversations =
+        !_isSearchActive &&
+        (_scheduledConversationGroups.isNotEmpty ||
+            _pinnedConversationResults.isNotEmpty);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -54,7 +58,16 @@ extension _HomeDrawerConversationList on HomeDrawerState {
                     ),
                   )
                 : visibleConversationResults.isEmpty
-                ? _isSearchActive
+                ? hasPromotedConversations
+                      ? SlidableAutoCloseBehavior(
+                          child: ListView(
+                            padding: EdgeInsets.zero,
+                            children: _buildConversationTimelineChildren(
+                              visibleConversationResults,
+                            ),
+                          ),
+                        )
+                      : _isSearchActive
                       ? (_isSearching
                             ? _buildSearchingConversationState()
                             : _buildEmptySearchResult())
@@ -274,11 +287,22 @@ extension _HomeDrawerConversationList on HomeDrawerState {
   List<Widget> _buildConversationTimelineChildren(
     List<_ConversationSearchResult> results,
   ) {
+    final scheduledGroups = _scheduledConversationGroups;
+    final pinnedResults = _pinnedConversationResults;
     final sections = _buildConversationSections(results);
     final children = <Widget>[];
+    if (scheduledGroups.isNotEmpty) {
+      children.add(_buildScheduledConversationSection(scheduledGroups));
+    }
+    if (pinnedResults.isNotEmpty) {
+      if (children.isNotEmpty) {
+        children.add(const SizedBox(height: 12));
+      }
+      children.add(_buildPinnedConversationSection(pinnedResults));
+    }
     for (int sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
       final section = sections[sectionIndex];
-      if (sectionIndex > 0) {
+      if (children.isNotEmpty || sectionIndex > 0) {
         children.add(const SizedBox(height: 14));
       }
       children.add(_buildConversationDateSection(section));
@@ -316,6 +340,233 @@ extension _HomeDrawerConversationList on HomeDrawerState {
         label,
       );
     });
+  }
+
+  Widget _buildPinnedConversationSection(
+    List<_ConversationSearchResult> results,
+  ) {
+    return _buildPromotedConversationSection(
+      sectionKey: '__home_drawer_pinned__',
+      label: context.trLegacy('置顶会话'),
+      itemCount: results.length,
+      backgroundColor: _promotedSectionBackgroundColor,
+      children: [
+        for (int itemIndex = 0; itemIndex < results.length; itemIndex++)
+          _buildSwipeConversationItem(
+            results[itemIndex],
+            showDivider: itemIndex != results.length - 1,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildScheduledConversationSection(
+    List<_ScheduledConversationGroup> groups,
+  ) {
+    final itemCount = groups.fold<int>(
+      0,
+      (count, group) => count + 1 + group.children.length,
+    );
+    return _buildPromotedConversationSection(
+      sectionKey: '__home_drawer_scheduled__',
+      label: context.trLegacy('定时任务'),
+      itemCount: itemCount,
+      backgroundColor: _promotedSectionBackgroundColor,
+      children: [
+        for (int groupIndex = 0; groupIndex < groups.length; groupIndex++)
+          _buildScheduledConversationGroup(
+            groups[groupIndex],
+            showDivider: groupIndex != groups.length - 1,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPromotedConversationSection({
+    required String sectionKey,
+    required String label,
+    required int itemCount,
+    required Color backgroundColor,
+    required List<Widget> children,
+  }) {
+    final expanded = _isConversationSectionExpanded(sectionKey);
+    final items = Column(children: [const SizedBox(height: 2), ...children]);
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          _buildConversationSectionHeader(
+            label,
+            expanded: expanded,
+            itemCount: itemCount,
+            onTap: () => _toggleConversationSection(sectionKey),
+          ),
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(
+              begin: expanded ? 1 : 0,
+              end: expanded ? 1 : 0,
+            ),
+            duration: HomeDrawerState._sectionToggleDuration,
+            curve: Curves.easeInOutCubicEmphasized,
+            builder: (context, value, child) {
+              return ClipRect(
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  heightFactor: value,
+                  child: Opacity(
+                    opacity: value.clamp(0.0, 1.0).toDouble(),
+                    child: IgnorePointer(ignoring: value < 0.99, child: child),
+                  ),
+                ),
+              );
+            },
+            child: items,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color get _promotedSectionBackgroundColor {
+    final palette = context.omniPalette;
+    return context.isDarkTheme
+        ? Color.lerp(palette.surfaceSecondary, palette.accentPrimary, 0.08)!
+        : palette.accentPrimary.withValues(alpha: 0.045);
+  }
+
+  Widget _buildScheduledConversationGroup(
+    _ScheduledConversationGroup group, {
+    required bool showDivider,
+  }) {
+    final parentSectionKey =
+        '__home_drawer_scheduled_${group.parent.threadKey}';
+    final expanded = _isConversationSectionExpanded(parentSectionKey);
+    final children = Column(
+      children: [
+        for (
+          int childIndex = 0;
+          childIndex < group.children.length;
+          childIndex++
+        )
+          _buildScheduledChildConversationItem(
+            group.children[childIndex],
+            showDivider: childIndex != group.children.length - 1,
+          ),
+      ],
+    );
+
+    return Column(
+      children: [
+        _buildScheduledParentConversationRow(
+          group,
+          onToggle: () => _toggleConversationSection(parentSectionKey),
+        ),
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: expanded ? 1 : 0, end: expanded ? 1 : 0),
+          duration: HomeDrawerState._sectionToggleDuration,
+          curve: Curves.easeInOutCubicEmphasized,
+          builder: (context, value, child) {
+            return ClipRect(
+              child: Align(
+                alignment: Alignment.topCenter,
+                heightFactor: value,
+                child: Opacity(
+                  opacity: value.clamp(0.0, 1.0).toDouble(),
+                  child: IgnorePointer(ignoring: value < 0.99, child: child),
+                ),
+              ),
+            );
+          },
+          child: children,
+        ),
+        if (showDivider) const SizedBox(height: 6),
+      ],
+    );
+  }
+
+  Widget _buildScheduledParentConversationRow(
+    _ScheduledConversationGroup group, {
+    required VoidCallback onToggle,
+  }) {
+    final palette = context.omniPalette;
+    final title = _resolveConversationTitle(group.parent);
+    final childCount = group.children.length;
+    final countText = childCount > 0 ? '$childCount' : '${group.taskCount}';
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _openConversationFromDrawer(group.parent),
+        borderRadius: BorderRadius.circular(8),
+        splashColor: palette.accentPrimary.withValues(alpha: 0.08),
+        highlightColor: Colors.transparent,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(4, 8, 2, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onToggle,
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Center(
+                    child: SvgPicture.asset(
+                      'assets/home/git_fork_icon.svg',
+                      width: 16,
+                      height: 16,
+                      colorFilter: ColorFilter.mode(
+                        palette.textTertiary,
+                        BlendMode.srcIn,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 2),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: _drawerTextColor,
+                    height: 1.35,
+                    fontFamily: 'PingFang SC',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                countText,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: palette.textTertiary,
+                  fontFamily: 'PingFang SC',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScheduledChildConversationItem(
+    _ConversationSearchResult result, {
+    required bool showDivider,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 26),
+      child: _buildSwipeConversationItem(result, showDivider: showDivider),
+    );
   }
 
   Widget _buildConversationDateSection(_ConversationSection section) {

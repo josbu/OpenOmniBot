@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/features/home/state/habitual_hand_controller.dart';
 import 'package:ui/features/home/widgets/home_drawer.dart';
 import 'package:ui/models/conversation_model.dart';
 import 'package:ui/models/conversation_thread_target.dart';
 import 'package:ui/models/habitual_hand.dart';
+import 'package:ui/services/storage_service.dart';
 
 class _SvgTestAssetBundle extends CachingAssetBundle {
   static final Uint8List _svgBytes = Uint8List.fromList(
@@ -39,7 +41,9 @@ void main() {
 
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await StorageService.init();
     nativeConversations = <Map<String, Object?>>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
@@ -194,6 +198,102 @@ void main() {
     expect(selectedTarget, isNotNull);
     expect(selectedTarget!.conversationId, 42);
     expect(selectedTarget!.mode, ConversationMode.openclaw);
+  });
+
+  testWidgets('shows scheduled and pinned sections before regular history', (
+    tester,
+  ) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await StorageService.setStringList('scheduled_tasks', [
+      jsonEncode({
+        'id': 'schedule-1',
+        'title': '新闻整理任务',
+        'packageName': '',
+        'nodeId': '',
+        'suggestionId': '',
+        'targetKind': 'subagent',
+        'parentConversationId': '1',
+        'parentConversationMode': ConversationMode.normal.storageValue,
+        'subagentPrompt': '整理新闻',
+        'type': 'fixedTime',
+        'fixedTime': '18:00',
+        'repeatDaily': true,
+        'isEnabled': true,
+        'createdAt': now,
+        'nextExecutionTime': now + 3600 * 1000,
+      }),
+    ]);
+    nativeConversations = <Map<String, Object?>>[
+      <String, Object?>{
+        'id': 1,
+        'title': '主会话',
+        'mode': ConversationMode.normal.storageValue,
+        'summary': null,
+        'status': 0,
+        'lastMessage': null,
+        'messageCount': 0,
+        'createdAt': now - 4000,
+        'updatedAt': now - 3000,
+      },
+      <String, Object?>{
+        'id': 2,
+        'title': '子运行会话',
+        'mode': ConversationMode.subagent.storageValue,
+        'parentConversationId': 1,
+        'parentConversationMode': ConversationMode.normal.storageValue,
+        'scheduledTaskId': 'schedule-1',
+        'summary': null,
+        'status': 0,
+        'lastMessage': null,
+        'messageCount': 0,
+        'createdAt': now - 2000,
+        'updatedAt': now - 1000,
+      },
+      <String, Object?>{
+        'id': 3,
+        'title': '重点对话',
+        'mode': ConversationMode.normal.storageValue,
+        'isPinned': true,
+        'summary': null,
+        'status': 0,
+        'lastMessage': null,
+        'messageCount': 0,
+        'createdAt': now - 6000,
+        'updatedAt': now - 5000,
+      },
+      <String, Object?>{
+        'id': 4,
+        'title': '普通会话',
+        'mode': ConversationMode.normal.storageValue,
+        'summary': null,
+        'status': 0,
+        'lastMessage': null,
+        'messageCount': 0,
+        'createdAt': now - 8000,
+        'updatedAt': now - 7000,
+      },
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: _buildProviderScope(
+            child: const Scaffold(
+              body: SizedBox(width: 360, height: 720, child: HomeDrawer()),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('定时任务'), findsOneWidget);
+    expect(find.text('主会话'), findsOneWidget);
+    expect(find.text('子运行会话'), findsOneWidget);
+    expect(find.text('置顶会话'), findsOneWidget);
+    expect(find.text('重点对话'), findsOneWidget);
+    expect(find.text('普通会话'), findsOneWidget);
   });
 }
 
