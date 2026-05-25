@@ -6,14 +6,91 @@ const String _kExpandedConversationSectionsStorageKey =
     'home_drawer_expanded_sections_v1';
 const String _kPinnedConversationSectionKey = '__home_drawer_pinned__';
 const String _kScheduledConversationSectionKey = '__home_drawer_scheduled__';
+const double _kConversationSectionHeaderLeadingSlotWidth = 20;
+const double _kPromotedConversationItemTitleInset = 20;
+const List<String> _kDateHeaderIconAssetPaths = <String>[
+  'assets/home/date_header_icons/amphora.svg',
+  'assets/home/date_header_icons/apple.svg',
+  'assets/home/date_header_icons/banana.svg',
+  'assets/home/date_header_icons/barrel.svg',
+  'assets/home/date_header_icons/bean.svg',
+  'assets/home/date_header_icons/beef.svg',
+  'assets/home/date_header_icons/beer.svg',
+  'assets/home/date_header_icons/bird.svg',
+  'assets/home/date_header_icons/birdhouse.svg',
+  'assets/home/date_header_icons/blender.svg',
+  'assets/home/date_header_icons/bone.svg',
+  'assets/home/date_header_icons/bottle-wine.svg',
+  'assets/home/date_header_icons/broccoli.svg',
+  'assets/home/date_header_icons/bug-play.svg',
+  'assets/home/date_header_icons/bug.svg',
+  'assets/home/date_header_icons/cake-slice.svg',
+  'assets/home/date_header_icons/cake.svg',
+  'assets/home/date_header_icons/candy-cane.svg',
+  'assets/home/date_header_icons/candy.svg',
+  'assets/home/date_header_icons/carrot.svg',
+  'assets/home/date_header_icons/cat.svg',
+  'assets/home/date_header_icons/chef-hat.svg',
+  'assets/home/date_header_icons/cherry.svg',
+  'assets/home/date_header_icons/citrus.svg',
+  'assets/home/date_header_icons/coffee.svg',
+  'assets/home/date_header_icons/cookie.svg',
+  'assets/home/date_header_icons/cooking-pot.svg',
+  'assets/home/date_header_icons/croissant.svg',
+  'assets/home/date_header_icons/cuboid.svg',
+  'assets/home/date_header_icons/cup-soda.svg',
+  'assets/home/date_header_icons/dessert.svg',
+  'assets/home/date_header_icons/dog.svg',
+  'assets/home/date_header_icons/donut.svg',
+  'assets/home/date_header_icons/drumstick.svg',
+  'assets/home/date_header_icons/egg-fried.svg',
+  'assets/home/date_header_icons/egg.svg',
+  'assets/home/date_header_icons/fish-symbol.svg',
+  'assets/home/date_header_icons/fish.svg',
+  'assets/home/date_header_icons/glass-water.svg',
+  'assets/home/date_header_icons/grape.svg',
+  'assets/home/date_header_icons/ham.svg',
+  'assets/home/date_header_icons/hamburger.svg',
+  'assets/home/date_header_icons/hand-platter.svg',
+  'assets/home/date_header_icons/hop.svg',
+  'assets/home/date_header_icons/ice-cream-bowl.svg',
+  'assets/home/date_header_icons/ice-cream-cone.svg',
+  'assets/home/date_header_icons/leafy-green.svg',
+  'assets/home/date_header_icons/lollipop.svg',
+  'assets/home/date_header_icons/martini.svg',
+  'assets/home/date_header_icons/microwave.svg',
+  'assets/home/date_header_icons/milk.svg',
+  'assets/home/date_header_icons/nut.svg',
+  'assets/home/date_header_icons/origami.svg',
+  'assets/home/date_header_icons/panda.svg',
+  'assets/home/date_header_icons/paw-print.svg',
+  'assets/home/date_header_icons/pizza.svg',
+  'assets/home/date_header_icons/popcorn.svg',
+  'assets/home/date_header_icons/popsicle.svg',
+  'assets/home/date_header_icons/rabbit.svg',
+  'assets/home/date_header_icons/rat.svg',
+  'assets/home/date_header_icons/refrigerator.svg',
+  'assets/home/date_header_icons/salad.svg',
+  'assets/home/date_header_icons/sandwich.svg',
+  'assets/home/date_header_icons/shell.svg',
+  'assets/home/date_header_icons/shrimp.svg',
+  'assets/home/date_header_icons/snail.svg',
+  'assets/home/date_header_icons/soup.svg',
+  'assets/home/date_header_icons/squirrel.svg',
+  'assets/home/date_header_icons/torus.svg',
+  'assets/home/date_header_icons/tractor.svg',
+  'assets/home/date_header_icons/turtle.svg',
+  'assets/home/date_header_icons/utensils-crossed.svg',
+  'assets/home/date_header_icons/utensils.svg',
+  'assets/home/date_header_icons/vegan.svg',
+  'assets/home/date_header_icons/wheat.svg',
+  'assets/home/date_header_icons/wine.svg',
+  'assets/home/date_header_icons/worm.svg',
+];
 
 extension _HomeDrawerConversationList on HomeDrawerState {
   Widget _buildConversationSection() {
     final visibleConversationResults = _visibleConversationResults;
-    final hasPromotedConversations =
-        !_isSearchActive &&
-        (_scheduledConversationGroups.isNotEmpty ||
-            _pinnedConversationResults.isNotEmpty);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -50,48 +127,68 @@ extension _HomeDrawerConversationList on HomeDrawerState {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: isLoadingConversations
-                ? Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          _drawerTextColor,
-                        ),
-                      ),
-                    ),
-                  )
-                : visibleConversationResults.isEmpty
-                ? hasPromotedConversations
-                      ? SlidableAutoCloseBehavior(
-                          child: ListView(
-                            padding: EdgeInsets.zero,
-                            children: _buildConversationTimelineChildren(
-                              visibleConversationResults,
-                            ),
-                          ),
-                        )
-                      : _isSearchActive
-                      ? (_isSearching
-                            ? _buildSearchingConversationState()
-                            : _buildEmptySearchResult())
-                      : _buildEmptyConversation()
-                : SlidableAutoCloseBehavior(
-                    child: ListView(
-                      padding: EdgeInsets.zero,
-                      children: _isSearchActive
-                          ? _buildSearchResultChildren(
-                              visibleConversationResults,
-                            )
-                          : _buildConversationTimelineChildren(
-                              visibleConversationResults,
-                            ),
-                    ),
-                  ),
+                ? _buildConversationLoadingState()
+                : _isSearchActive
+                ? _buildSearchConversationBody(visibleConversationResults)
+                : _buildConversationTimelineBody(visibleConversationResults),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildConversationLoadingState() {
+    return Center(
+      child: SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          valueColor: AlwaysStoppedAnimation<Color>(_drawerTextColor),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchConversationBody(List<_ConversationSearchResult> results) {
+    if (results.isEmpty) {
+      return _isSearching
+          ? _buildSearchingConversationState()
+          : _buildEmptySearchResult();
+    }
+    return SlidableAutoCloseBehavior(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: _buildSearchResultChildren(results),
+      ),
+    );
+  }
+
+  Widget _buildConversationTimelineBody(
+    List<_ConversationSearchResult> results,
+  ) {
+    final promotedChildren = _buildPromotedConversationSectionChildren(
+      scheduledGroups: _scheduledConversationGroups,
+      pinnedResults: _pinnedConversationResults,
+    );
+    final historyChildren = _buildConversationDateSectionChildren(results);
+
+    return SlidableAutoCloseBehavior(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ...promotedChildren,
+          if (promotedChildren.isNotEmpty && historyChildren.isNotEmpty)
+            const SizedBox(height: 14),
+          Expanded(
+            child: historyChildren.isEmpty
+                ? (promotedChildren.isEmpty
+                      ? _buildEmptyConversation()
+                      : const SizedBox.shrink())
+                : ListView(padding: EdgeInsets.zero, children: historyChildren),
+          ),
+        ],
+      ),
     );
   }
 
@@ -289,12 +386,10 @@ extension _HomeDrawerConversationList on HomeDrawerState {
     return children;
   }
 
-  List<Widget> _buildConversationTimelineChildren(
-    List<_ConversationSearchResult> results,
-  ) {
-    final scheduledGroups = _scheduledConversationGroups;
-    final pinnedResults = _pinnedConversationResults;
-    final sections = _buildConversationSections(results);
+  List<Widget> _buildPromotedConversationSectionChildren({
+    required List<_ScheduledConversationGroup> scheduledGroups,
+    required List<_ConversationSearchResult> pinnedResults,
+  }) {
     final children = <Widget>[];
     if (scheduledGroups.isNotEmpty) {
       children.add(_buildScheduledConversationSection(scheduledGroups));
@@ -305,14 +400,54 @@ extension _HomeDrawerConversationList on HomeDrawerState {
       }
       children.add(_buildPinnedConversationSection(pinnedResults));
     }
+    return children;
+  }
+
+  List<Widget> _buildConversationDateSectionChildren(
+    List<_ConversationSearchResult> results,
+  ) {
+    final sections = _buildConversationSections(results);
+    final children = <Widget>[];
+    final usedIconIndexes = <int>{};
     for (int sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
       final section = sections[sectionIndex];
       if (children.isNotEmpty || sectionIndex > 0) {
         children.add(const SizedBox(height: 14));
       }
-      children.add(_buildConversationDateSection(section));
+      children.add(
+        _buildConversationDateSection(
+          section,
+          iconAssetPath: _dateSectionIconAssetPath(
+            section.sectionKey,
+            usedIconIndexes: usedIconIndexes,
+          ),
+        ),
+      );
     }
     return children;
+  }
+
+  String _dateSectionIconAssetPath(
+    String sectionKey, {
+    required Set<int> usedIconIndexes,
+  }) {
+    var iconIndex =
+        _stablePositiveHash(sectionKey) % _kDateHeaderIconAssetPaths.length;
+    if (usedIconIndexes.length < _kDateHeaderIconAssetPaths.length) {
+      while (!usedIconIndexes.add(iconIndex)) {
+        iconIndex = (iconIndex + 1) % _kDateHeaderIconAssetPaths.length;
+      }
+    }
+    return _kDateHeaderIconAssetPaths[iconIndex];
+  }
+
+  int _stablePositiveHash(String value) {
+    var hash = 0x811c9dc5;
+    for (final codeUnit in value.codeUnits) {
+      hash ^= codeUnit;
+      hash = (hash * 0x01000193) & 0x7fffffff;
+    }
+    return hash;
   }
 
   List<_ConversationSection> _buildConversationSections(
@@ -407,8 +542,10 @@ extension _HomeDrawerConversationList on HomeDrawerState {
   ) {
     return _buildPromotedConversationSection(
       sectionKey: _kPinnedConversationSectionKey,
-      label: context.trLegacy('置顶会话'),
+      label: context.l10n.homeDrawerPinnedConversations,
       itemCount: results.length,
+      iconAssetPath: 'assets/home/pin_icon.svg',
+      childrenLeadingInset: _kPromotedConversationItemTitleInset,
       backgroundColor: _promotedSectionBackgroundColor,
       children: [
         for (int itemIndex = 0; itemIndex < results.length; itemIndex++)
@@ -429,8 +566,10 @@ extension _HomeDrawerConversationList on HomeDrawerState {
     );
     return _buildPromotedConversationSection(
       sectionKey: _kScheduledConversationSectionKey,
-      label: context.trLegacy('定时任务'),
+      label: context.l10n.homeDrawerScheduledTasks,
       itemCount: itemCount,
+      iconAssetPath: 'assets/common/schedule_icon.svg',
+      childrenLeadingInset: 12,
       backgroundColor: _promotedSectionBackgroundColor,
       children: [
         for (int groupIndex = 0; groupIndex < groups.length; groupIndex++)
@@ -446,13 +585,19 @@ extension _HomeDrawerConversationList on HomeDrawerState {
     required String sectionKey,
     required String label,
     required int itemCount,
+    required String iconAssetPath,
+    required double childrenLeadingInset,
     required Color backgroundColor,
     required List<Widget> children,
   }) {
     final expanded = _isConversationSectionExpanded(sectionKey);
-    final items = Column(children: [const SizedBox(height: 2), ...children]);
+    final items = Padding(
+      padding: EdgeInsets.only(left: childrenLeadingInset),
+      child: Column(children: [const SizedBox(height: 2), ...children]),
+    );
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(0, 6, 12, 6),
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(8),
@@ -464,6 +609,9 @@ extension _HomeDrawerConversationList on HomeDrawerState {
             expanded: expanded,
             itemCount: itemCount,
             onTap: () => _toggleConversationSection(sectionKey),
+            showTapFeedback: false,
+            iconAssetPath: iconAssetPath,
+            leadingSlotWidth: _kConversationSectionHeaderLeadingSlotWidth,
           ),
           TweenAnimationBuilder<double>(
             tween: Tween<double>(
@@ -524,6 +672,7 @@ extension _HomeDrawerConversationList on HomeDrawerState {
       children: [
         _buildScheduledParentConversationRow(
           group,
+          expanded: expanded,
           onToggle: () => _toggleConversationSection(parentSectionKey),
         ),
         TweenAnimationBuilder<double>(
@@ -551,6 +700,7 @@ extension _HomeDrawerConversationList on HomeDrawerState {
 
   Widget _buildScheduledParentConversationRow(
     _ScheduledConversationGroup group, {
+    required bool expanded,
     required VoidCallback onToggle,
   }) {
     final palette = context.omniPalette;
@@ -580,13 +730,18 @@ extension _HomeDrawerConversationList on HomeDrawerState {
                   width: 24,
                   height: 24,
                   child: Center(
-                    child: SvgPicture.asset(
-                      'assets/home/git_fork_icon.svg',
-                      width: 16,
-                      height: 16,
-                      colorFilter: ColorFilter.mode(
-                        palette.textTertiary,
-                        BlendMode.srcIn,
+                    child: AnimatedRotation(
+                      turns: expanded ? 0 : -0.25,
+                      duration: HomeDrawerState._sectionToggleDuration,
+                      curve: Curves.easeInOutCubicEmphasized,
+                      child: SvgPicture.asset(
+                        'assets/common/chevron-down.svg',
+                        width: 16,
+                        height: 16,
+                        colorFilter: ColorFilter.mode(
+                          palette.textTertiary,
+                          BlendMode.srcIn,
+                        ),
                       ),
                     ),
                   ),
@@ -631,17 +786,29 @@ extension _HomeDrawerConversationList on HomeDrawerState {
     );
   }
 
-  Widget _buildConversationDateSection(_ConversationSection section) {
+  Widget _buildConversationDateSection(
+    _ConversationSection section, {
+    required String iconAssetPath,
+  }) {
     final expanded = _isConversationSectionExpanded(section.sectionKey);
-    final items = Column(
-      children: [
-        const SizedBox(height: 4),
-        for (int itemIndex = 0; itemIndex < section.results.length; itemIndex++)
-          _buildSwipeConversationItem(
-            section.results[itemIndex],
-            showDivider: itemIndex != section.results.length - 1,
-          ),
-      ],
+    final items = Padding(
+      padding: const EdgeInsets.only(
+        left: _kPromotedConversationItemTitleInset,
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 4),
+          for (
+            int itemIndex = 0;
+            itemIndex < section.results.length;
+            itemIndex++
+          )
+            _buildSwipeConversationItem(
+              section.results[itemIndex],
+              showDivider: itemIndex != section.results.length - 1,
+            ),
+        ],
+      ),
     );
 
     return Column(
@@ -651,6 +818,8 @@ extension _HomeDrawerConversationList on HomeDrawerState {
           expanded: expanded,
           itemCount: section.results.length,
           onTap: () => _toggleConversationSection(section.sectionKey),
+          iconAssetPath: iconAssetPath,
+          leadingSlotWidth: _kConversationSectionHeaderLeadingSlotWidth,
         ),
         TweenAnimationBuilder<double>(
           tween: Tween<double>(begin: expanded ? 1 : 0, end: expanded ? 1 : 0),
@@ -679,54 +848,84 @@ extension _HomeDrawerConversationList on HomeDrawerState {
     required bool expanded,
     required int itemCount,
     required VoidCallback onTap,
+    bool showTapFeedback = true,
+    String? iconAssetPath,
+    double leadingSlotWidth = 0,
   }) {
     final palette = context.omniPalette;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          splashColor: palette.accentPrimary.withValues(alpha: 0.06),
-          highlightColor: Colors.transparent,
-          child: Semantics(
-            button: true,
-            toggled: expanded,
-            child: Container(
-              constraints: const BoxConstraints(minHeight: 28),
-              alignment: Alignment.centerLeft,
-              padding: const EdgeInsets.fromLTRB(4, 5, 4, 5),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.6,
-                      color: palette.textTertiary,
-                      fontFamily: 'PingFang SC',
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '$itemCount',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: palette.textTertiary.withValues(alpha: 0.82),
-                      fontFamily: 'PingFang SC',
-                    ),
-                  ),
-                  const Spacer(),
-                ],
+    final headerContent = Semantics(
+      button: true,
+      toggled: expanded,
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 28),
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.fromLTRB(4, 5, 4, 5),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (leadingSlotWidth > 0)
+              SizedBox(
+                width: leadingSlotWidth,
+                height: 14,
+                child: iconAssetPath == null
+                    ? null
+                    : Align(
+                        alignment: Alignment.centerLeft,
+                        child: SvgPicture.asset(
+                          iconAssetPath,
+                          width: 14,
+                          height: 14,
+                          colorFilter: ColorFilter.mode(
+                            palette.textTertiary,
+                            BlendMode.srcIn,
+                          ),
+                        ),
+                      ),
+              ),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0,
+                color: palette.textTertiary,
+                fontFamily: 'PingFang SC',
               ),
             ),
-          ),
+            const SizedBox(width: 8),
+            Text(
+              '$itemCount',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: palette.textTertiary.withValues(alpha: 0.82),
+                fontFamily: 'PingFang SC',
+              ),
+            ),
+            const Spacer(),
+          ],
         ),
       ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: showTapFeedback
+          ? Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(12),
+                splashColor: palette.accentPrimary.withValues(alpha: 0.06),
+                highlightColor: Colors.transparent,
+                child: headerContent,
+              ),
+            )
+          : GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onTap,
+              child: headerContent,
+            ),
     );
   }
 
