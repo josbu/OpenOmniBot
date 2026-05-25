@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/features/home/state/habitual_hand_controller.dart';
 import 'package:ui/features/home/widgets/conversation_slidable.dart';
 import 'package:ui/features/home/widgets/home_drawer.dart';
+import 'package:ui/l10n/generated/app_localizations.dart';
 import 'package:ui/models/conversation_model.dart';
 import 'package:ui/models/conversation_thread_target.dart';
 import 'package:ui/models/habitual_hand.dart';
@@ -306,6 +307,206 @@ void main() {
       ),
     );
     expect(scheduledChildSlidable.actions, hasLength(2));
+  });
+
+  testWidgets('unfocuses search field when tapping outside', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: _buildProviderScope(
+            child: const Scaffold(
+              body: SizedBox(
+                width: 360,
+                height: 720,
+                child: HomeDrawer(embedded: true),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final searchField = tester.widget<TextField>(find.byType(TextField));
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+
+    expect(searchField.focusNode!.hasFocus, isTrue);
+
+    await tester.tapAt(const Offset(180, 180));
+    await tester.pump();
+
+    expect(searchField.focusNode!.hasFocus, isFalse);
+  });
+
+  testWidgets('localizes promoted drawer section titles in English', (
+    tester,
+  ) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await StorageService.setStringList('scheduled_tasks', [
+      jsonEncode({
+        'id': 'schedule-1',
+        'title': 'Daily task',
+        'packageName': '',
+        'nodeId': '',
+        'suggestionId': '',
+        'targetKind': 'subagent',
+        'parentConversationId': '1',
+        'parentConversationMode': ConversationMode.normal.storageValue,
+        'subagentPrompt': 'Summarize news',
+        'type': 'fixedTime',
+        'fixedTime': '18:00',
+        'repeatDaily': true,
+        'isEnabled': true,
+        'createdAt': now,
+        'nextExecutionTime': now + 3600 * 1000,
+      }),
+    ]);
+    nativeConversations = <Map<String, Object?>>[
+      <String, Object?>{
+        'id': 1,
+        'title': 'Main chat',
+        'mode': ConversationMode.normal.storageValue,
+        'summary': null,
+        'status': 0,
+        'lastMessage': null,
+        'messageCount': 0,
+        'createdAt': now - 4000,
+        'updatedAt': now - 3000,
+      },
+      <String, Object?>{
+        'id': 2,
+        'title': 'Pinned chat',
+        'mode': ConversationMode.normal.storageValue,
+        'isPinned': true,
+        'summary': null,
+        'status': 0,
+        'lastMessage': null,
+        'messageCount': 0,
+        'createdAt': now - 6000,
+        'updatedAt': now - 5000,
+      },
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: _buildProviderScope(
+            child: const Scaffold(
+              body: SizedBox(width: 360, height: 720, child: HomeDrawer()),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Scheduled tasks'), findsOneWidget);
+    expect(find.text('Pinned conversations'), findsOneWidget);
+  });
+
+  testWidgets('keeps promoted sections fixed while history scrolls', (
+    tester,
+  ) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await StorageService.setStringList('scheduled_tasks', [
+      jsonEncode({
+        'id': 'schedule-1',
+        'title': '新闻整理任务',
+        'packageName': '',
+        'nodeId': '',
+        'suggestionId': '',
+        'targetKind': 'subagent',
+        'parentConversationId': '1',
+        'parentConversationMode': ConversationMode.normal.storageValue,
+        'subagentPrompt': '整理新闻',
+        'type': 'fixedTime',
+        'fixedTime': '18:00',
+        'repeatDaily': true,
+        'isEnabled': true,
+        'createdAt': now,
+        'nextExecutionTime': now + 3600 * 1000,
+      }),
+    ]);
+    nativeConversations = <Map<String, Object?>>[
+      <String, Object?>{
+        'id': 1,
+        'title': '主会话',
+        'mode': ConversationMode.normal.storageValue,
+        'summary': null,
+        'status': 0,
+        'lastMessage': null,
+        'messageCount': 0,
+        'createdAt': now - 4000,
+        'updatedAt': now - 3000,
+      },
+      <String, Object?>{
+        'id': 2,
+        'title': '重点对话',
+        'mode': ConversationMode.normal.storageValue,
+        'isPinned': true,
+        'summary': null,
+        'status': 0,
+        'lastMessage': null,
+        'messageCount': 0,
+        'createdAt': now - 6000,
+        'updatedAt': now - 5000,
+      },
+      for (int index = 0; index < 24; index++)
+        <String, Object?>{
+          'id': 100 + index,
+          'title': '普通会话 $index',
+          'mode': ConversationMode.normal.storageValue,
+          'summary': null,
+          'status': 0,
+          'lastMessage': null,
+          'messageCount': 0,
+          'createdAt': now - 10000 - index * 1000,
+          'updatedAt': now - 9000 - index * 1000,
+        },
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: _buildProviderScope(
+            child: const Scaffold(
+              body: SizedBox(width: 360, height: 720, child: HomeDrawer()),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final historyDateLabel = ConversationModel(
+      id: 999,
+      title: '',
+      status: 0,
+      messageCount: 0,
+      createdAt: now,
+      updatedAt: now - 9000,
+    ).timeDisplay;
+    final scheduledTopBefore = tester.getTopLeft(find.text('定时任务')).dy;
+    final pinnedTopBefore = tester.getTopLeft(find.text('置顶会话')).dy;
+    final historyDateLeft = tester.getTopLeft(find.text(historyDateLabel)).dx;
+
+    expect(tester.getTopLeft(find.text('定时任务')).dx, historyDateLeft);
+    expect(tester.getTopLeft(find.text('置顶会话')).dx, historyDateLeft);
+    expect(tester.getTopLeft(find.text('重点对话')).dx, historyDateLeft);
+    expect(tester.getTopLeft(find.text('普通会话 0')).dx, historyDateLeft);
+
+    await tester.drag(find.text('普通会话 0'), const Offset(0, -320));
+    await tester.pumpAndSettle();
+
+    expect(tester.getTopLeft(find.text('定时任务')).dy, scheduledTopBefore);
+    expect(tester.getTopLeft(find.text('置顶会话')).dy, pinnedTopBefore);
   });
 
   testWidgets('syncs scheduled section when scheduled tasks are deleted', (
