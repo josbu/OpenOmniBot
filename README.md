@@ -52,10 +52,11 @@ OpenOmniBot is an on-device AI agent built with native Android Kotlin and Flutte
 </p>
 
 <p align="center">
-  <img src="docs/tutorial/home_drawer.jpg" alt="Example" width="360" />
+  <img src="docs/tutorial/ui.png" alt="ui" width="360" />
 </p>
 
-<h2 id="quick-start">Quick Start</h2>
+<details>
+<summary id="quick-start"><strong>Quick Start</strong></summary>
 
 ### Configure the app
 
@@ -129,6 +130,8 @@ Scheduled tasks can execute work such as VLM tasks and subagent flows. Alarms ar
 <p align="center">
   <img src="docs/tutorial/workspace.jpg" alt="Workspace" width="260" />
 </p>
+
+</details>
 
 <h2 id="development-guide">Development Guide</h2>
 
