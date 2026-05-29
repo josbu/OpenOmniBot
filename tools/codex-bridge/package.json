@@ -5,8 +5,8 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "codex-bridge": "./server.mjs",
-    "omnibot-codex-bridge": "./server.mjs"
+    "codex-bridge": "server.mjs",
+    "omnibot-codex-bridge": "server.mjs"
   },
   "files": [
     "README.md",

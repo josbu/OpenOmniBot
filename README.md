@@ -128,6 +128,16 @@ Scheduled tasks can execute work such as VLM tasks and subagent flows. Alarms ar
   <img src="docs/tutorial/workspace.jpg" alt="Workspace" width="260" />
 </p>
 
+### Remote Codex bridge
+
+To use Codex mode with Codex running on a PC or Mac, start `codex-bridge` on the computer where the Codex CLI is installed and logged in:
+
+```bash
+npx @thuocean/codex-bridge
+```
+
+Choose the LAN address and token mode in the terminal setup UI, then scan the printed QR code from OpenOmniBot's Codex settings. For advanced options and troubleshooting, see the [codex-bridge README](tools/codex-bridge/README.md).
+
 </details>
 
 <h2 id="development-guide">Development Guide</h2>
