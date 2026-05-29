@@ -1,8 +1,23 @@
 part of 'chat_page.dart';
 
 const String _kCodexModelPreferenceKey = 'model';
+const String _kCodexReasoningEffortPreferenceKey = 'reasoning_effort';
 const String _kCodexCollaborationModePreferenceKey = 'collaboration_mode';
 const String _kCodexPreferenceStoragePrefix = 'chat_codex_command_preference';
+const String _kDefaultCodexReasoningEffort = 'xhigh';
+const Duration _remoteCodexExternalActiveGrace = Duration(seconds: 6);
+const List<String> _kCodexModelListResponseKeys = <String>[
+  'models',
+  'items',
+  'data',
+  'modelOptions',
+  'model_options',
+  'availableModels',
+  'available_models',
+  'modelIds',
+  'model_ids',
+  'options',
+];
 const String _kCodexInitPrompt = '''
 Please analyze this repository and create or update an AGENTS.md file that acts as a contributor guide for future coding agents.
 
@@ -204,6 +219,7 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
     final runtimeId = _remoteCodexRuntimeId(threadId);
     _activeCodexRemoteRuntimeId = runtimeId;
     _activeCodexThreadId = threadId;
+    _activeCodexTurnId = null;
     _currentConversationIdByMode[ChatPageMode.codex] = runtimeId;
 
     try {
@@ -217,37 +233,21 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       if (!mounted) return;
       final resolvedThreadId =
           _asCodexString(response['threadId']) ??
-          _asCodexString((response['thread'] as Map?)?['id']) ??
+          _asCodexString(_asCodexMap(response['thread'])?['id']) ??
           threadId;
-      final messages = _codexMessagesFromThreadResponse(response);
       final conversation = _remoteCodexConversationFromResponse(
         runtimeId: runtimeId,
         response: response,
       );
-      setState(() {
-        _codexStatus = status;
-        _activeCodexThreadId = resolvedThreadId;
-        _currentConversationByMode[ChatPageMode.codex] = conversation;
-        _messagesByMode[ChatPageMode.codex]!
-          ..clear()
-          ..addAll(messages);
-        _hasMoreMessagesByMode[ChatPageMode.codex] = false;
-        _messageOffsetByMode[ChatPageMode.codex] = messages.length;
-      });
-      _runtimeCoordinator.ensureEphemeralRuntime(
-        conversationId: runtimeId,
-        mode: kChatRuntimeModeCodex,
-        initialMessages: messages,
-        conversation: conversation,
-        initialChatIslandDisplayLayer: ChatIslandDisplayLayer.mode,
+      _applyRemoteCodexThreadSnapshot(
+        response: response,
+        fallbackThreadId: resolvedThreadId,
+        fallbackRuntimeId: runtimeId,
+        fallbackConversation: conversation,
+        status: status,
+        assumeActive: target.codexThreadActive == true,
       );
-      _runtimeCoordinator.replaceConversationSnapshot(
-        conversationId: runtimeId,
-        mode: kChatRuntimeModeCodex,
-        messages: messages,
-        conversation: conversation,
-        chatIslandDisplayLayer: ChatIslandDisplayLayer.mode,
-      );
+      _startRemoteCodexSessionSync(resolvedThreadId);
       _rememberRuntimeUiSnapshot(ChatPageMode.codex);
     } catch (error) {
       if (!mounted) return;
@@ -267,6 +267,10 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       _kCodexModelPreferenceKey,
       conversationId: conversationId,
     );
+    final effort = _readCodexPreference(
+      _kCodexReasoningEffortPreferenceKey,
+      conversationId: conversationId,
+    );
     final collaborationMode = _readCodexPreference(
       _kCodexCollaborationModePreferenceKey,
       conversationId: conversationId,
@@ -274,15 +278,18 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
     if (!mounted) return;
     setState(() {
       _activeCodexModelId = model;
+      _activeCodexReasoningEffort = _normalizeCodexReasoningEffort(effort);
       _activeCodexCollaborationMode = collaborationMode;
     });
-    if (model == null) {
+    if (model == null || effort == null || _codexModelOptions.isEmpty) {
       unawaited(_loadCodexModelOptionsWhenReady());
     }
   }
 
   Future<void> _loadCodexModelOptionsWhenReady() async {
-    if ((_activeCodexModelId ?? '').trim().isNotEmpty ||
+    if ((_codexModelOptions.isNotEmpty &&
+            (_activeCodexModelId ?? '').trim().isNotEmpty &&
+            (_activeCodexReasoningEffort ?? '').trim().isNotEmpty) ||
         _isCodexModelListLoading) {
       return;
     }
@@ -327,21 +334,39 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       _codexModelListError = null;
     });
     try {
-      final configModel = await _readCodexModelIdFromServerConfig();
+      final configSettings = await _readCodexRunSettingsFromServerConfig();
       final response = await CodexAppServerService.listModels();
-      final models = _extractCodexOptionIds(response, const <String>[
-        'models',
-        'items',
-        'data',
-      ]);
+      final models = _extractCodexOptionIds(
+        response,
+        _kCodexModelListResponseKeys,
+      );
+      if (models.isEmpty) {
+        debugPrint(
+          '[Codex] model/list returned no parseable models: ${jsonEncode(response)}',
+        );
+      }
       final preferredModel =
-          configModel ??
+          configSettings.modelId ??
           _extractCodexPreferredOptionId(response) ??
+          _extractCodexDefaultModelId(response) ??
           (models.isNotEmpty ? models.first : null);
-      final modelOptions =
-          preferredModel != null && !models.contains(preferredModel)
-          ? <String>[preferredModel, ...models]
-          : models;
+      final activeModel = (_activeCodexModelId ?? '').trim();
+      final modelOptions = _mergeCodexOptionIds(
+        current: activeModel.isEmpty ? preferredModel : activeModel,
+        preferred: preferredModel,
+        options: models,
+      );
+      final effectiveModel = activeModel.isNotEmpty
+          ? activeModel
+          : preferredModel;
+      final modelDefaultEffort = _extractCodexModelDefaultReasoningEffort(
+        response,
+        effectiveModel,
+      );
+      final effortOptions = _mergeCodexReasoningEffortOptions(
+        current: configSettings.reasoningEffort ?? modelDefaultEffort,
+        options: _extractCodexReasoningEffortOptions(response),
+      );
       if (!mounted) return;
       setState(() {
         _codexModelOptions = modelOptions;
@@ -349,6 +374,15 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
             preferredModel != null) {
           _activeCodexModelId = preferredModel;
         }
+        if ((_activeCodexReasoningEffort ?? '').trim().isEmpty) {
+          _activeCodexReasoningEffort =
+              configSettings.reasoningEffort ??
+              modelDefaultEffort ??
+              (effortOptions.isNotEmpty
+                  ? effortOptions.last
+                  : _kDefaultCodexReasoningEffort);
+        }
+        _codexReasoningEffortOptions = effortOptions;
         _isCodexModelListLoading = false;
         _codexModelListError = null;
       });
@@ -361,13 +395,17 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
     }
   }
 
-  Future<String?> _readCodexModelIdFromServerConfig() async {
+  Future<_CodexRunSettingsSnapshot>
+  _readCodexRunSettingsFromServerConfig() async {
     try {
       final response = await CodexAppServerService.readConfig();
-      return _extractCodexConfigModelId(response);
+      return _CodexRunSettingsSnapshot(
+        modelId: _extractCodexConfigModelId(response),
+        reasoningEffort: _extractCodexConfigReasoningEffort(response),
+      );
     } catch (error) {
-      debugPrint('Read Codex config model failed: $error');
-      return null;
+      debugPrint('Read Codex config run settings failed: $error');
+      return const _CodexRunSettingsSnapshot();
     }
   }
 
@@ -408,7 +446,10 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
   }
 
   @override
-  Future<void> _selectCodexModel(String modelId) async {
+  Future<void> _selectCodexModel(
+    String modelId, {
+    bool clearComposer = true,
+  }) async {
     final normalized = modelId.trim();
     if (normalized.isEmpty || normalized.startsWith('/')) {
       return;
@@ -418,8 +459,30 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       _activeCodexModelId = normalized;
     });
     await _writeCodexPreference(_kCodexModelPreferenceKey, normalized);
-    _messageController.clear();
-    _hideSlashCommandPanel();
+    if (clearComposer) {
+      _messageController.clear();
+      _hideSlashCommandPanel();
+    }
+  }
+
+  @override
+  Future<void> _selectCodexReasoningEffort(String effort) async {
+    final normalized = _normalizeCodexReasoningEffort(effort);
+    if (normalized == null) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _activeCodexReasoningEffort = normalized;
+      _codexReasoningEffortOptions = _mergeCodexReasoningEffortOptions(
+        current: normalized,
+        options: _codexReasoningEffortOptions,
+      );
+    });
+    await _writeCodexPreference(
+      _kCodexReasoningEffortPreferenceKey,
+      normalized,
+    );
   }
 
   @override
@@ -602,10 +665,15 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
         approvalsReviewer: _codexPermissionMode.approvalsReviewer,
         sandboxPolicy: _codexPermissionMode.sandboxPolicy,
         model: _activeCodexModelId,
+        effort: _activeCodexReasoningEffort,
         collaborationMode: _activeCodexCollaborationMode,
       );
-      _activeCodexThreadId =
-          _asCodexString(response['threadId']) ?? _activeCodexThreadId;
+      final resolvedThreadId = _asCodexString(response['threadId']);
+      if (resolvedThreadId != null && remoteCodex) {
+        _activateRemoteCodexRuntimeForThread(resolvedThreadId);
+        _startRemoteCodexSessionSync(resolvedThreadId);
+      }
+      _activeCodexThreadId = resolvedThreadId ?? _activeCodexThreadId;
       _activeCodexTurnId =
           _asCodexString(response['turnId']) ?? _activeCodexTurnId;
       await _writeCodexCommandPreferencesForCurrentConversation();
@@ -678,6 +746,10 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
     if (modelId != null && modelId.isNotEmpty) {
       await _writeCodexPreference(_kCodexModelPreferenceKey, modelId);
     }
+    final effort = _activeCodexReasoningEffort?.trim();
+    if (effort != null && effort.isNotEmpty) {
+      await _writeCodexPreference(_kCodexReasoningEffortPreferenceKey, effort);
+    }
     final collaborationMode = _activeCodexCollaborationMode?.trim();
     if (collaborationMode != null && collaborationMode.isNotEmpty) {
       await _writeCodexPreference(
@@ -696,32 +768,67 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
 
   @override
   void _handleCodexAppServerEvent(Map<String, dynamic> event) {
+    final remoteCodex = _isRemoteCodexConfigured();
+    final eventThreadId = _codexEventThreadId(event);
+    final explicitConversationId = _asCodexInt(event['conversationId']);
+    final mappedRemoteConversationId = remoteCodex && eventThreadId != null
+        ? _remoteCodexRuntimeId(eventThreadId)
+        : null;
+    final shouldPromoteRemoteEvent =
+        remoteCodex &&
+        eventThreadId != null &&
+        _shouldPromoteRemoteCodexEventToVisibleThread(
+          threadId: eventThreadId,
+          runtimeId: mappedRemoteConversationId!,
+        );
     final conversationId =
-        _asCodexInt(event['conversationId']) ??
+        explicitConversationId ??
+        (shouldPromoteRemoteEvent
+            ? _activateRemoteCodexRuntimeForThread(eventThreadId)
+            : mappedRemoteConversationId) ??
         _currentConversationIdByMode[ChatPageMode.codex];
     if (conversationId == null) {
       return;
     }
+    if (remoteCodex && eventThreadId != null && !shouldPromoteRemoteEvent) {
+      _ensureRemoteCodexRuntimeForThread(eventThreadId);
+    }
+    final isVisibleConversation =
+        conversationId == _currentConversationIdByMode[ChatPageMode.codex];
     final result = _runtimeCoordinator.applyCodexEvent(
       conversationId: conversationId,
       event: event,
-      conversation: _currentConversationByMode[ChatPageMode.codex],
+      conversation: isVisibleConversation
+          ? _currentConversationByMode[ChatPageMode.codex]
+          : null,
     );
     final threadId = _asCodexString(event['threadId']) ?? result.threadId;
     final turnId = _asCodexString(event['turnId']) ?? result.turnId;
-    if (threadId != null || turnId != null) {
+    if (isVisibleConversation && (threadId != null || turnId != null)) {
       _activeCodexThreadId = threadId ?? _activeCodexThreadId;
       _activeCodexTurnId = turnId ?? _activeCodexTurnId;
     }
-    if (result.method == 'turn/completed') {
+    if (isVisibleConversation && result.method == 'turn/completed') {
       _activeCodexTurnId = null;
+    }
+    if (isVisibleConversation) {
+      final runtime = _runtimeCoordinator.runtimeFor(
+        conversationId: conversationId,
+        mode: kChatRuntimeModeCodex,
+      );
+      if (runtime != null) {
+        _syncCodexModeStateFromRuntime(runtime);
+        if (!runtime.isAiResponding) {
+          _activeCodexTurnId = null;
+        }
+      }
     }
     if (!result.handled &&
         result.method != 'codex/stderr' &&
         result.method != 'codex/parseError') {
       debugPrint('[Codex] unhandled app-server event: ${jsonEncode(event)}');
     }
-    if (_activeMode == ChatPageMode.codex && mounted) {
+    if (_activeMode == ChatPageMode.codex && mounted && isVisibleConversation) {
       setState(() {});
     }
   }
@@ -791,11 +898,16 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
         approvalsReviewer: _codexPermissionMode.approvalsReviewer,
         sandboxPolicy: _codexPermissionMode.sandboxPolicy,
         model: modelOverride ?? _activeCodexModelId,
+        effort: _activeCodexReasoningEffort,
         collaborationMode:
             collaborationModeOverride ?? _activeCodexCollaborationMode,
       );
-      _activeCodexThreadId =
-          _asCodexString(response['threadId']) ?? _activeCodexThreadId;
+      final resolvedThreadId = _asCodexString(response['threadId']);
+      if (resolvedThreadId != null && remoteCodex) {
+        _activateRemoteCodexRuntimeForThread(resolvedThreadId);
+        _startRemoteCodexSessionSync(resolvedThreadId);
+      }
+      _activeCodexThreadId = resolvedThreadId ?? _activeCodexThreadId;
       _activeCodexTurnId =
           _asCodexString(response['turnId']) ?? _activeCodexTurnId;
       final localConversationId = _asCodexInt(response['conversationId']);
@@ -844,6 +956,372 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
     }
   }
 
+  void _startRemoteCodexSessionSync(String threadId) {
+    final normalizedThreadId = threadId.trim();
+    if (normalizedThreadId.isEmpty) {
+      return;
+    }
+    if (_remoteCodexSessionSyncThreadId == normalizedThreadId &&
+        _remoteCodexSessionSyncTimer != null) {
+      return;
+    }
+    _remoteCodexSessionSyncThreadId = normalizedThreadId;
+    _remoteCodexSessionSyncSignature = '';
+    _remoteCodexSessionSyncTimer?.cancel();
+    _remoteCodexSessionSyncTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => unawaited(_syncRemoteCodexSessionSnapshot()),
+    );
+    unawaited(_syncRemoteCodexSessionSnapshot());
+  }
+
+  @override
+  void _stopRemoteCodexSessionSync() {
+    _remoteCodexSessionSyncTimer?.cancel();
+    _remoteCodexSessionSyncTimer = null;
+    _remoteCodexSessionSyncInFlight = false;
+    _remoteCodexSessionSyncThreadId = null;
+    _remoteCodexSessionSyncSignature = '';
+    _remoteCodexActivityThreadId = null;
+    _remoteCodexActivityContentSignature = '';
+    _remoteCodexLastContentChangeAtMs = null;
+  }
+
+  bool _inferRemoteCodexSnapshotActive({
+    required String threadId,
+    required Map<String, dynamic> response,
+    required _CodexThreadActivityState activity,
+    required bool previousActive,
+    required bool assumeActive,
+    required String? directActiveTurnId,
+  }) {
+    if (!_isRemoteCodexConfigured()) {
+      return false;
+    }
+
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (_remoteCodexActivityThreadId != threadId) {
+      _remoteCodexActivityThreadId = threadId;
+      _remoteCodexActivityContentSignature = '';
+      _remoteCodexLastContentChangeAtMs = null;
+    }
+
+    final contentSignature = _codexThreadContentSignature(response);
+    final firstObservation = _remoteCodexActivityContentSignature.isEmpty;
+    final contentChanged =
+        contentSignature.isNotEmpty &&
+        contentSignature != _remoteCodexActivityContentSignature;
+    if (contentSignature.isNotEmpty && contentChanged) {
+      _remoteCodexActivityContentSignature = contentSignature;
+      _remoteCodexLastContentChangeAtMs = nowMs;
+    }
+
+    if (directActiveTurnId != null || activity.active) {
+      _remoteCodexLastContentChangeAtMs = nowMs;
+      return true;
+    }
+
+    final looksExternallyActive = _codexLatestTurnLooksExternallyActive(
+      response,
+    );
+    if (activity.known && !activity.active) {
+      // Caller hint wins over Kotlin's authoritative-but-stale active=false:
+      // when the user opens a session that the remote codex had already been
+      // working on before this client connected, Kotlin's activeTurnsByThreadId
+      // is empty so it injects active=false even though codex is in fact still
+      // streaming. Trust assumeActive (sourced from the sessions list's
+      // session.active flag) for this initial observation.
+      if (assumeActive) {
+        _remoteCodexLastContentChangeAtMs ??= nowMs;
+        return true;
+      }
+      if (!firstObservation && contentChanged && looksExternallyActive) {
+        _remoteCodexLastContentChangeAtMs = nowMs;
+        return true;
+      }
+      final lastChangeAt = _remoteCodexLastContentChangeAtMs;
+      if (previousActive && looksExternallyActive && lastChangeAt != null) {
+        final ageMs = nowMs - lastChangeAt;
+        if (ageMs <= _remoteCodexExternalActiveGrace.inMilliseconds) {
+          return true;
+        }
+      }
+      _remoteCodexLastContentChangeAtMs = null;
+      return false;
+    }
+
+    if (assumeActive) {
+      _remoteCodexLastContentChangeAtMs ??= nowMs;
+      return true;
+    }
+
+    if (!firstObservation && contentChanged && looksExternallyActive) {
+      _remoteCodexLastContentChangeAtMs = nowMs;
+      return true;
+    }
+
+    final lastChangeAt = _remoteCodexLastContentChangeAtMs;
+    if (previousActive && lastChangeAt != null) {
+      final ageMs = nowMs - lastChangeAt;
+      if (ageMs <= _remoteCodexExternalActiveGrace.inMilliseconds) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  Future<void> _syncRemoteCodexSessionSnapshot() async {
+    if (_remoteCodexSessionSyncInFlight) {
+      return;
+    }
+    final threadId = _remoteCodexSessionSyncThreadId?.trim() ?? '';
+    if (threadId.isEmpty ||
+        !mounted ||
+        _activeConversationMode != ChatPageMode.codex ||
+        !_isRemoteCodexConfigured() ||
+        _activeCodexThreadId?.trim() != threadId) {
+      return;
+    }
+    _remoteCodexSessionSyncInFlight = true;
+    try {
+      final response = await _readRemoteCodexThreadSnapshot(threadId);
+      if (!mounted ||
+          _remoteCodexSessionSyncThreadId != threadId ||
+          _activeCodexThreadId?.trim() != threadId) {
+        return;
+      }
+      _applyRemoteCodexThreadSnapshot(
+        response: response,
+        fallbackThreadId: threadId,
+        fromPoll: true,
+      );
+    } catch (error) {
+      debugPrint('Remote Codex session sync failed: $error');
+    } finally {
+      if (_remoteCodexSessionSyncThreadId == threadId) {
+        _remoteCodexSessionSyncInFlight = false;
+      }
+    }
+  }
+
+  Future<Map<String, dynamic>> _readRemoteCodexThreadSnapshot(
+    String threadId,
+  ) async {
+    try {
+      return await CodexAppServerService.readThread(threadId: threadId);
+    } catch (error) {
+      debugPrint('Codex thread/read failed, falling back to resume: $error');
+      return CodexAppServerService.resumeThread(threadId: threadId);
+    }
+  }
+
+  void _applyRemoteCodexThreadSnapshot({
+    required Map<String, dynamic> response,
+    required String fallbackThreadId,
+    int? fallbackRuntimeId,
+    List<ChatMessageModel>? fallbackMessages,
+    ConversationModel? fallbackConversation,
+    CodexStatus? status,
+    bool fromPoll = false,
+    bool assumeActive = false,
+  }) {
+    final resolvedThreadId =
+        _asCodexString(response['threadId']) ??
+        _asCodexString(_asCodexMap(response['thread'])?['id']) ??
+        fallbackThreadId;
+    if (resolvedThreadId.isEmpty) {
+      return;
+    }
+    final runtimeId =
+        fallbackRuntimeId ?? _remoteCodexRuntimeId(resolvedThreadId);
+    final runtime = _runtimeCoordinator.runtimeFor(
+      conversationId: runtimeId,
+      mode: kChatRuntimeModeCodex,
+    );
+    final activity = _codexThreadActivityFromResponse(response);
+    final previousActive = runtime?.isAiResponding ?? false;
+    final directActiveTurnId = _codexActiveTurnIdFromThreadResponse(response);
+    final inferredRemoteActive = _inferRemoteCodexSnapshotActive(
+      threadId: resolvedThreadId,
+      response: response,
+      activity: activity,
+      previousActive: previousActive,
+      assumeActive: assumeActive,
+      directActiveTurnId: directActiveTurnId,
+    );
+    final snapshotIsAiResponding =
+        directActiveTurnId != null || activity.active || inferredRemoteActive;
+    // The snapshot makes a definitive "no active turn" statement only when
+    // BOTH Kotlin's bookkeeping AND the response payload agree: Kotlin
+    // injects active=false (activeTurnsByThreadId dropped this thread after
+    // turn/completed, thread/closed, status/changed inactive, or a terminal
+    // error), AND no turn in the response still looks externally active.
+    //
+    // The looksExternallyActive guard matters for the cold-open path: if a
+    // user opens a session that the remote codex was already working on,
+    // Kotlin never saw turn/started so it injects active=false — yet the
+    // response itself can still surface an in-progress latest turn. Without
+    // this guard, the snapshot would wrongfully cancel out the assumeActive
+    // hint (and later, the reducer's runtime active set by push events).
+    final snapshotKnowsInactive =
+        directActiveTurnId == null &&
+        activity.known &&
+        !activity.active &&
+        !_codexLatestTurnLooksExternallyActive(response);
+    // Otherwise floor against the reducer's runtime state. Snapshot polling
+    // runs every 2s and would otherwise downgrade isAiResponding between
+    // reasoning deltas when codex doesn't surface a "running" status in
+    // thread/read.
+    final isAiResponding =
+        snapshotIsAiResponding ||
+        (previousActive && !snapshotKnowsInactive);
+    final activeTurnId = isAiResponding
+        ? (directActiveTurnId ??
+              _codexLatestTurnIdFromThreadResponse(response) ??
+              runtime?.currentDispatchTaskId ??
+              runtime?.lastAgentTaskId ??
+              _activeCodexTurnId)
+        : null;
+    final activeTaskId = isAiResponding
+        ? (activeTurnId ??
+              runtime?.currentDispatchTaskId ??
+              runtime?.lastAgentTaskId ??
+              'remote-codex-$resolvedThreadId')
+        : null;
+    final hasTurns = _codexThreadResponseHasTurns(response);
+    final existingMessages = List<ChatMessageModel>.from(
+      runtime?.messages ??
+          _messagesByMode[ChatPageMode.codex] ??
+          const <ChatMessageModel>[],
+    );
+    final snapshotMessages = hasTurns
+        ? _codexMessagesFromThreadResponse(
+            response,
+            active: isAiResponding,
+            activeTurnId: activeTurnId,
+          )
+        : (fallbackMessages ?? existingMessages);
+    final messages = hasTurns
+        ? _mergeRemoteCodexSnapshotMessages(
+            snapshotMessages: snapshotMessages,
+            existingMessages: existingMessages,
+            activeTaskId: activeTaskId,
+            isAiResponding: isAiResponding,
+          )
+        : snapshotMessages;
+    final conversation =
+        (fallbackConversation ??
+                _remoteCodexConversationFromResponse(
+                  runtimeId: runtimeId,
+                  response: response,
+                ))
+            .copyWith(messageCount: messages.length);
+    final signature = _remoteCodexSnapshotSignature(
+      threadId: resolvedThreadId,
+      messages: messages,
+      conversation: conversation,
+      isAiResponding: isAiResponding,
+      activeTaskId: activeTaskId,
+    );
+    if (fromPoll && signature == _remoteCodexSessionSyncSignature) {
+      return;
+    }
+    _remoteCodexSessionSyncSignature = signature;
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _activeCodexRemoteRuntimeId = runtimeId;
+      _activeCodexThreadId = resolvedThreadId;
+      _activeCodexTurnId = activeTurnId;
+      if (status != null) {
+        _codexStatus = status;
+      }
+      _currentConversationIdByMode[ChatPageMode.codex] = runtimeId;
+      _currentConversationByMode[ChatPageMode.codex] = conversation;
+      _isAiRespondingByMode[ChatPageMode.codex] = isAiResponding;
+      _isExecutingTaskByMode[ChatPageMode.codex] = isAiResponding;
+      _isDeepThinkingByMode[ChatPageMode.codex] = isAiResponding;
+      _currentThinkingStageByMode[ChatPageMode.codex] = isAiResponding
+          ? ThinkingStage.thinking.value
+          : ThinkingStage.complete.value;
+      _currentDispatchTaskIdByMode[ChatPageMode.codex] = activeTaskId;
+      _messagesByMode[ChatPageMode.codex]!
+        ..clear()
+        ..addAll(messages);
+      _hasMoreMessagesByMode[ChatPageMode.codex] = false;
+      _messageOffsetByMode[ChatPageMode.codex] = messages.length;
+    });
+    _runtimeCoordinator.ensureEphemeralRuntime(
+      conversationId: runtimeId,
+      mode: kChatRuntimeModeCodex,
+      initialMessages: messages,
+      conversation: conversation,
+      initialChatIslandDisplayLayer: ChatIslandDisplayLayer.mode,
+    );
+    _runtimeCoordinator.replaceConversationSnapshot(
+      conversationId: runtimeId,
+      mode: kChatRuntimeModeCodex,
+      messages: messages,
+      conversation: conversation,
+      isAiResponding: isAiResponding,
+      isExecutingTask: isAiResponding,
+      isDeepThinking: isAiResponding,
+      deepThinkingContent: runtime?.deepThinkingContent ?? '',
+      currentDispatchTaskId: activeTaskId,
+      currentThinkingStage: isAiResponding
+          ? ThinkingStage.thinking.value
+          : ThinkingStage.complete.value,
+      lastAgentTaskId: activeTaskId,
+      chatIslandDisplayLayer: ChatIslandDisplayLayer.mode,
+    );
+    if (activeTaskId != null) {
+      _runtimeCoordinator.registerTask(
+        taskId: activeTaskId,
+        conversationId: runtimeId,
+        mode: kChatRuntimeModeCodex,
+      );
+    }
+    final updatedRuntime = _runtimeCoordinator.runtimeFor(
+      conversationId: runtimeId,
+      mode: kChatRuntimeModeCodex,
+    );
+    if (updatedRuntime != null) {
+      _syncCodexModeStateFromRuntime(updatedRuntime);
+    }
+  }
+
+  void _syncCodexModeStateFromRuntime(ChatConversationRuntimeState runtime) {
+    _isAiRespondingByMode[ChatPageMode.codex] = runtime.isAiResponding;
+    _isContextCompressingByMode[ChatPageMode.codex] =
+        runtime.isContextCompressing;
+    _isCheckingExecutableTaskByMode[ChatPageMode.codex] =
+        runtime.isCheckingExecutableTask;
+    _isSubmittingVlmReplyByMode[ChatPageMode.codex] =
+        runtime.isSubmittingVlmReply;
+    _vlmInfoQuestionByMode[ChatPageMode.codex] = runtime.vlmInfoQuestion;
+    _currentAiMessagesByMode[ChatPageMode.codex]!
+      ..clear()
+      ..addAll(runtime.currentAiMessages);
+    _deepThinkingContentByMode[ChatPageMode.codex] =
+        runtime.deepThinkingContent;
+    _isDeepThinkingByMode[ChatPageMode.codex] = runtime.isDeepThinking;
+    _currentDispatchTaskIdByMode[ChatPageMode.codex] =
+        runtime.currentDispatchTaskId;
+    _currentThinkingStageByMode[ChatPageMode.codex] =
+        runtime.currentThinkingStage;
+    _isInputAreaVisibleByMode[ChatPageMode.codex] = runtime.isInputAreaVisible;
+    _isExecutingTaskByMode[ChatPageMode.codex] = runtime.isExecutingTask;
+    _currentConversationByMode[ChatPageMode.codex] = runtime.conversation;
+    _chatIslandDisplayLayerByMode[ChatPageMode.codex] =
+        runtime.chatIslandDisplayLayer;
+    _lastAgentToolTypeByMode[ChatPageMode.codex] = runtime.lastAgentToolType;
+    _browserSessionSnapshotByMode[ChatPageMode.codex] =
+        runtime.browserSessionSnapshot;
+  }
+
   bool _isRemoteCodexConfigured() {
     final runtime = _codexStatus.runtime?.trim();
     return runtime == 'remote' || _codexStatus.remoteEnabled;
@@ -888,6 +1366,96 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       initialChatIslandDisplayLayer: ChatIslandDisplayLayer.mode,
     );
     return runtimeId;
+  }
+
+  int _ensureRemoteCodexRuntimeForThread(String threadId) {
+    final normalizedThreadId = threadId.trim();
+    final runtimeId = _remoteCodexRuntimeId(normalizedThreadId);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _runtimeCoordinator.ensureEphemeralRuntime(
+      conversationId: runtimeId,
+      mode: kChatRuntimeModeCodex,
+      conversation:
+          _runtimeCoordinator
+              .runtimeFor(
+                conversationId: runtimeId,
+                mode: kChatRuntimeModeCodex,
+              )
+              ?.conversation ??
+          ConversationModel(
+            id: runtimeId,
+            mode: ConversationMode.codex,
+            title:
+                'Codex ${normalizedThreadId.length > 6 ? normalizedThreadId.substring(normalizedThreadId.length - 6) : normalizedThreadId}',
+            status: 0,
+            messageCount: 0,
+            createdAt: now,
+            updatedAt: now,
+          ),
+      initialChatIslandDisplayLayer: ChatIslandDisplayLayer.mode,
+    );
+    return runtimeId;
+  }
+
+  int _activateRemoteCodexRuntimeForThread(String threadId) {
+    final normalizedThreadId = threadId.trim();
+    final runtimeId = _ensureRemoteCodexRuntimeForThread(normalizedThreadId);
+    final runtime = _runtimeCoordinator.runtimeFor(
+      conversationId: runtimeId,
+      mode: kChatRuntimeModeCodex,
+    );
+    if (runtime != null) {
+      final visibleMessages = _messagesByMode[ChatPageMode.codex]!;
+      if (visibleMessages.isNotEmpty) {
+        final existingIds = runtime.messages
+            .map((message) => message.id)
+            .toSet();
+        for (final message in visibleMessages.reversed) {
+          if (existingIds.add(message.id)) {
+            runtime.messages.add(message);
+          }
+        }
+      }
+      final currentConversation =
+          _currentConversationByMode[ChatPageMode.codex];
+      if (currentConversation != null) {
+        runtime.conversation = currentConversation.copyWith(id: runtimeId);
+      }
+      _currentConversationByMode[ChatPageMode.codex] = runtime.conversation;
+    }
+    _activeCodexRemoteRuntimeId = runtimeId;
+    _activeCodexThreadId = normalizedThreadId;
+    _currentConversationIdByMode[ChatPageMode.codex] = runtimeId;
+    return runtimeId;
+  }
+
+  bool _shouldPromoteRemoteCodexEventToVisibleThread({
+    required String threadId,
+    required int runtimeId,
+  }) {
+    final activeThreadId = _activeCodexThreadId?.trim();
+    if (activeThreadId == threadId) {
+      return true;
+    }
+    final currentConversationId =
+        _currentConversationIdByMode[ChatPageMode.codex];
+    if (currentConversationId == runtimeId) {
+      return true;
+    }
+    if (activeThreadId != null && activeThreadId.isNotEmpty) {
+      return false;
+    }
+    if (currentConversationId == null ||
+        currentConversationId != _activeCodexRemoteRuntimeId) {
+      return false;
+    }
+    final runtime = _runtimeCoordinator.runtimeFor(
+      conversationId: currentConversationId,
+      mode: kChatRuntimeModeCodex,
+    );
+    return (_messagesByMode[ChatPageMode.codex]?.isNotEmpty ?? false) ||
+        (runtime?.hasInFlightTask ?? false) ||
+        (_currentDispatchTaskIdByMode[ChatPageMode.codex]?.isNotEmpty ?? false);
   }
 
   Future<void> _showCodexAccountStatus() async {
@@ -948,6 +1516,35 @@ String? _asCodexString(dynamic value) {
   return text.isEmpty ? null : text;
 }
 
+String? _codexEventThreadId(Map<String, dynamic> event) {
+  final direct = _asCodexString(event['threadId'] ?? event['thread_id']);
+  if (direct != null) {
+    return direct;
+  }
+  final params = _asCodexMap(event['params']);
+  final fromParams = _asCodexString(
+    params?['threadId'] ?? params?['thread_id'],
+  );
+  if (fromParams != null) {
+    return fromParams;
+  }
+  final thread = _asCodexMap(params?['thread']);
+  final fromThread = _asCodexString(thread?['id']);
+  if (fromThread != null) {
+    return fromThread;
+  }
+  final message = _asCodexMap(event['message']);
+  final messageParams = _asCodexMap(message?['params']);
+  final fromMessageParams = _asCodexString(
+    messageParams?['threadId'] ?? messageParams?['thread_id'],
+  );
+  if (fromMessageParams != null) {
+    return fromMessageParams;
+  }
+  final messageThread = _asCodexMap(messageParams?['thread']);
+  return _asCodexString(messageThread?['id']);
+}
+
 int _remoteCodexRuntimeId(String seed) {
   var hash = 0x45d9f3b;
   for (final codeUnit in seed.codeUnits) {
@@ -994,22 +1591,569 @@ ConversationModel _remoteCodexConversationFromResponse({
   );
 }
 
-List<ChatMessageModel> _codexMessagesFromThreadResponse(
+class _CodexThreadActivityState {
+  const _CodexThreadActivityState({required this.known, required this.active});
+
+  final bool known;
+  final bool active;
+
+  static const unknown = _CodexThreadActivityState(known: false, active: false);
+  static const activeState = _CodexThreadActivityState(
+    known: true,
+    active: true,
+  );
+  static const inactiveState = _CodexThreadActivityState(
+    known: true,
+    active: false,
+  );
+}
+
+_CodexThreadActivityState _codexThreadActivityFromResponse(
   Map<String, dynamic> response,
 ) {
+  final thread = _asCodexMap(response['thread']) ?? response;
+  _CodexThreadActivityState? inactiveCandidate;
+  for (final value in <dynamic>[
+    response['active'],
+    response['isActive'],
+    response['is_active'],
+    response['status'],
+    response['state'],
+    response['turnStatus'],
+    response['turn_status'],
+    thread['active'],
+    thread['isActive'],
+    thread['is_active'],
+    thread['status'],
+    thread['state'],
+    thread['turnStatus'],
+    thread['turn_status'],
+  ]) {
+    final parsed = _codexActivityFromValue(value);
+    if (parsed == null) {
+      continue;
+    }
+    if (parsed.active) {
+      return parsed;
+    }
+    inactiveCandidate ??= parsed;
+  }
+  final latestTurnActivity = _codexLatestTurnActivityFromResponse(response);
+  if (latestTurnActivity != null) {
+    return latestTurnActivity;
+  }
+  if (inactiveCandidate != null) {
+    return inactiveCandidate;
+  }
+  return _CodexThreadActivityState.unknown;
+}
+
+_CodexThreadActivityState? _codexLatestTurnActivityFromResponse(
+  Map<String, dynamic> response,
+) {
+  final turns = _codexTurnsFromThreadResponse(response);
+  if (turns == null) {
+    return null;
+  }
+  for (var index = turns.length - 1; index >= 0; index -= 1) {
+    final turn = _asCodexMap(turns[index]);
+    if (turn == null) {
+      continue;
+    }
+    final parsed = _codexActivityFromValue(turn['status'] ?? turn['state']);
+    if (parsed != null) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+_CodexThreadActivityState? _codexActivityFromValue(dynamic value) {
+  if (value is bool) {
+    return value
+        ? _CodexThreadActivityState.activeState
+        : _CodexThreadActivityState.inactiveState;
+  }
+  final status = _codexStatusText(value);
+  if (status == null) {
+    return null;
+  }
+  final normalized = _normalizeCodexStatus(status);
+  if (_codexStatusIsActive(normalized)) {
+    return _CodexThreadActivityState.activeState;
+  }
+  if (_codexStatusIsInactive(normalized)) {
+    return _CodexThreadActivityState.inactiveState;
+  }
+  return null;
+}
+
+String? _codexStatusText(dynamic value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is String || value is num || value is bool) {
+    return _asCodexString(value);
+  }
+  final map = _asCodexMap(value);
+  if (map != null) {
+    for (final key in const <String>[
+      'type',
+      'status',
+      'state',
+      'value',
+      'name',
+    ]) {
+      final text = _codexStatusText(map[key]);
+      if (text != null) {
+        return text;
+      }
+    }
+  }
+  return null;
+}
+
+String _normalizeCodexStatus(String status) =>
+    status.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
+
+bool _codexStatusIsActive(String status) {
+  return status == 'running' ||
+      status == 'active' ||
+      status == 'busy' ||
+      status == 'inprogress' ||
+      status == 'inflight' ||
+      status == 'executing';
+}
+
+bool _codexStatusIsInactive(String status) {
+  return status == 'idle' ||
+      status == 'closed' ||
+      status == 'completed' ||
+      status == 'complete' ||
+      status == 'notloaded' ||
+      status == 'systemerror' ||
+      status == 'failed' ||
+      status == 'cancelled' ||
+      status == 'canceled' ||
+      status == 'interrupted';
+}
+
+String? _codexActiveTurnIdFromThreadResponse(Map<String, dynamic> response) {
+  final thread = _asCodexMap(response['thread']) ?? response;
+  final status =
+      _asCodexMap(response['status']) ?? _asCodexMap(thread['status']);
+  final direct = _asCodexString(
+    response['turnId'] ??
+        response['turn_id'] ??
+        response['activeTurnId'] ??
+        response['active_turn_id'] ??
+        response['currentTurnId'] ??
+        response['current_turn_id'] ??
+        thread['turnId'] ??
+        thread['turn_id'] ??
+        thread['activeTurnId'] ??
+        thread['active_turn_id'] ??
+        thread['currentTurnId'] ??
+        thread['current_turn_id'] ??
+        status?['turnId'] ??
+        status?['turn_id'] ??
+        status?['activeTurnId'] ??
+        status?['active_turn_id'],
+  );
+  if (direct != null) {
+    return direct;
+  }
+  final turns = _codexTurnsFromThreadResponse(response);
+  if (turns == null) {
+    return null;
+  }
+  for (var index = turns.length - 1; index >= 0; index -= 1) {
+    final turn = _asCodexMap(turns[index]);
+    if (turn == null) {
+      continue;
+    }
+    final parsed = _codexActivityFromValue(turn['status'] ?? turn['state']);
+    if (parsed?.active == true) {
+      return _codexTurnIdAt(turns, index);
+    }
+  }
+  return null;
+}
+
+String? _codexLatestTurnIdFromThreadResponse(Map<String, dynamic> response) {
+  final turns = _codexTurnsFromThreadResponse(response);
+  if (turns == null || turns.isEmpty) {
+    return null;
+  }
+  for (var index = turns.length - 1; index >= 0; index -= 1) {
+    final turnId = _codexTurnIdAt(turns, index);
+    if (turnId != null) {
+      return turnId;
+    }
+  }
+  return null;
+}
+
+bool _codexThreadResponseHasTurns(Map<String, dynamic> response) {
+  return _codexTurnsFromThreadResponse(response) != null;
+}
+
+List<dynamic>? _codexTurnsFromThreadResponse(Map<String, dynamic> response) {
+  final thread = _asCodexMap(response['thread']) ?? response;
+  final rawTurns = thread['turns'] ?? response['turns'];
+  return rawTurns is List ? rawTurns : null;
+}
+
+String? _codexTurnIdAt(List<dynamic> turns, int index) {
+  if (index < 0 || index >= turns.length) {
+    return null;
+  }
+  final turn = _asCodexMap(turns[index]);
+  if (turn == null) {
+    return null;
+  }
+  return _asCodexString(turn['id']) ?? 'turn-$index';
+}
+
+bool _codexLatestTurnLooksExternallyActive(Map<String, dynamic> response) {
+  final turns = _codexTurnsFromThreadResponse(response);
+  if (turns == null || turns.isEmpty) {
+    return false;
+  }
+  for (var index = turns.length - 1; index >= 0; index -= 1) {
+    final turn = _asCodexMap(turns[index]);
+    if (turn == null) {
+      continue;
+    }
+    final activity = _codexActivityFromValue(turn['status'] ?? turn['state']);
+    if (activity?.active == true) {
+      return true;
+    }
+    final statusText = _codexStatusText(turn['status'] ?? turn['state']);
+    final normalizedStatus = statusText == null
+        ? null
+        : _normalizeCodexStatus(statusText);
+    final completedAt =
+        _codexTimeValueMs(turn['completedAt'] ?? turn['completed_at']) ??
+        _codexTimeValueMs(turn['finishedAt'] ?? turn['finished_at']);
+    final hasError = turn['error'] != null;
+    final rawItems = turn['items'];
+    final hasItems = rawItems is List && rawItems.isNotEmpty;
+    if (completedAt == null &&
+        !hasError &&
+        hasItems &&
+        (normalizedStatus == null || normalizedStatus == 'interrupted')) {
+      return true;
+    }
+    return false;
+  }
+  return false;
+}
+
+String _codexThreadContentSignature(Map<String, dynamic> response) {
+  final thread = _asCodexMap(response['thread']) ?? response;
+  final turns = _codexTurnsFromThreadResponse(response);
+  final buffer = StringBuffer()
+    ..write(_asCodexString(thread['id'] ?? response['threadId']) ?? '')
+    ..write('|');
+  if (turns == null) {
+    buffer
+      ..write(
+        _codexTimeValueMs(thread['updatedAt'] ?? thread['updated_at']) ?? '',
+      )
+      ..write('|')
+      ..write(_asCodexString(thread['preview'] ?? response['preview']) ?? '');
+    return buffer.toString();
+  }
+  for (var turnIndex = 0; turnIndex < turns.length; turnIndex += 1) {
+    final turn = _asCodexMap(turns[turnIndex]);
+    if (turn == null) {
+      continue;
+    }
+    buffer
+      ..write(_codexTurnIdAt(turns, turnIndex) ?? '')
+      ..write(':')
+      ..write(_codexStatusText(turn['status'] ?? turn['state']) ?? '')
+      ..write(':')
+      ..write(_codexTimeValueMs(turn['startedAt'] ?? turn['started_at']) ?? '')
+      ..write(':')
+      ..write(
+        _codexTimeValueMs(turn['completedAt'] ?? turn['completed_at']) ?? '',
+      )
+      ..write('|');
+    final rawItems = turn['items'];
+    if (rawItems is! List) {
+      continue;
+    }
+    for (var itemIndex = 0; itemIndex < rawItems.length; itemIndex += 1) {
+      final item = _asCodexMap(rawItems[itemIndex]);
+      if (item == null) {
+        continue;
+      }
+      buffer
+        ..write(_asCodexString(item['id']) ?? '$turnIndex-$itemIndex')
+        ..write(',')
+        ..write(_asCodexString(item['type']) ?? '')
+        ..write(',')
+        ..write(_codexStatusText(item['status'] ?? item['state']) ?? '')
+        ..write(',')
+        ..write(
+          _codexExtractText(
+            item['summary'] ??
+                item['text'] ??
+                item['message'] ??
+                item['content'] ??
+                item['output'] ??
+                item['command'] ??
+                item['cmd'] ??
+                item['path'],
+          ).hashCode,
+        )
+        ..write(';');
+    }
+  }
+  return buffer.toString();
+}
+
+String _remoteCodexSnapshotSignature({
+  required String threadId,
+  required List<ChatMessageModel> messages,
+  required ConversationModel conversation,
+  required bool isAiResponding,
+  required String? activeTaskId,
+}) {
+  final buffer = StringBuffer()
+    ..write(threadId)
+    ..write('|')
+    ..write(conversation.updatedAt)
+    ..write('|')
+    ..write(isAiResponding ? '1' : '0')
+    ..write('|')
+    ..write(activeTaskId ?? '')
+    ..write('|')
+    ..write(messages.length);
+  for (final message in messages) {
+    buffer
+      ..write('|')
+      ..write(message.id)
+      ..write(':')
+      ..write(message.text?.hashCode ?? message.cardData?.hashCode ?? 0);
+  }
+  return buffer.toString();
+}
+
+List<ChatMessageModel> _mergeRemoteCodexSnapshotMessages({
+  required List<ChatMessageModel> snapshotMessages,
+  required List<ChatMessageModel> existingMessages,
+  required String? activeTaskId,
+  required bool isAiResponding,
+}) {
+  if (existingMessages.isEmpty) {
+    return snapshotMessages;
+  }
+  final snapshotById = <String, ChatMessageModel>{
+    for (final message in snapshotMessages) message.id: message,
+  };
+  final existingById = <String, ChatMessageModel>{
+    for (final message in existingMessages) message.id: message,
+  };
+  final userMessageIdsToPreserve = _remoteRuntimeUserMessageIdsToPreserve(
+    existingMessages: existingMessages,
+    snapshotMessageIds: snapshotById.keys.toSet(),
+    snapshotUserTextCounts: _remoteUserMessageTextCounts(snapshotMessages),
+  );
+  final mergedById = <String, ChatMessageModel>{};
+  for (final snapshot in snapshotMessages) {
+    final existing = existingById[snapshot.id];
+    mergedById[snapshot.id] =
+        existing != null &&
+            _shouldPreferExistingRemoteMessage(
+              existing: existing,
+              snapshot: snapshot,
+              activeTaskId: activeTaskId,
+              isAiResponding: isAiResponding,
+            )
+        ? existing
+        : snapshot;
+  }
+  for (final existing in existingMessages) {
+    if (snapshotById.containsKey(existing.id)) {
+      continue;
+    }
+    if (existing.type == 1 && existing.user == 1) {
+      if (userMessageIdsToPreserve.contains(existing.id)) {
+        mergedById[existing.id] = existing;
+      }
+      continue;
+    }
+    if (!_shouldPreserveRemoteRuntimeMessage(
+      existing,
+      activeTaskId: activeTaskId,
+      isAiResponding: isAiResponding,
+    )) {
+      continue;
+    }
+    mergedById[existing.id] = existing;
+  }
+  final merged = mergedById.values.toList(growable: false)
+    ..sort((a, b) => b.createAt.compareTo(a.createAt));
+  return merged;
+}
+
+bool _shouldPreferExistingRemoteMessage({
+  required ChatMessageModel existing,
+  required ChatMessageModel snapshot,
+  required String? activeTaskId,
+  required bool isAiResponding,
+}) {
+  if (!isAiResponding) {
+    return false;
+  }
+  if (!_messageBelongsToTask(existing, activeTaskId)) {
+    return false;
+  }
+  if (_isInFlightCodexMessage(existing)) {
+    return true;
+  }
+  final existingText = existing.text ?? '';
+  final snapshotText = snapshot.text ?? '';
+  return existingText.length > snapshotText.length &&
+      existingText.startsWith(snapshotText);
+}
+
+bool _shouldPreserveRemoteRuntimeMessage(
+  ChatMessageModel message, {
+  required String? activeTaskId,
+  required bool isAiResponding,
+}) {
+  if (!isAiResponding || activeTaskId == null) {
+    return false;
+  }
+  return _messageBelongsToTask(message, activeTaskId) &&
+      _isInFlightCodexMessage(message);
+}
+
+Map<String, int> _remoteUserMessageTextCounts(List<ChatMessageModel> messages) {
+  final counts = <String, int>{};
+  for (final message in messages) {
+    if (message.type != 1 || message.user != 1) {
+      continue;
+    }
+    final text = message.text?.trim();
+    if (text == null || text.isEmpty) {
+      continue;
+    }
+    counts[text] = (counts[text] ?? 0) + 1;
+  }
+  return counts;
+}
+
+Set<String> _remoteRuntimeUserMessageIdsToPreserve({
+  required List<ChatMessageModel> existingMessages,
+  required Set<String> snapshotMessageIds,
+  required Map<String, int> snapshotUserTextCounts,
+}) {
+  final existingByText = <String, List<ChatMessageModel>>{};
+  for (final message in existingMessages) {
+    if (snapshotMessageIds.contains(message.id) ||
+        message.type != 1 ||
+        message.user != 1) {
+      continue;
+    }
+    final text = message.text?.trim();
+    if (text == null || text.isEmpty) {
+      continue;
+    }
+    (existingByText[text] ??= <ChatMessageModel>[]).add(message);
+  }
+  final preserveIds = <String>{};
+  existingByText.forEach((text, messages) {
+    messages.sort((a, b) => b.createAt.compareTo(a.createAt));
+    final preserveCount = messages.length - (snapshotUserTextCounts[text] ?? 0);
+    if (preserveCount <= 0) {
+      return;
+    }
+    for (
+      var index = 0;
+      index < preserveCount && index < messages.length;
+      index += 1
+    ) {
+      preserveIds.add(messages[index].id);
+    }
+  });
+  return preserveIds;
+}
+
+bool _messageBelongsToTask(ChatMessageModel message, String? taskId) {
+  final normalizedTaskId = taskId?.trim() ?? '';
+  if (normalizedTaskId.isEmpty) {
+    return false;
+  }
+  final cardData = message.cardData;
+  final parentTaskId =
+      _asCodexString(message.streamMeta?['parentTaskId']) ??
+      _asCodexString(cardData?['taskId']) ??
+      _asCodexString(cardData?['taskID']);
+  return parentTaskId == normalizedTaskId;
+}
+
+bool _isInFlightCodexMessage(ChatMessageModel message) {
+  final streamFinal = message.streamMeta?['isFinal'];
+  if (streamFinal == false) {
+    return true;
+  }
+  final cardData = message.cardData;
+  if (cardData == null) {
+    return message.isLoading;
+  }
+  if (cardData['type'] == 'deep_thinking' && cardData['isLoading'] == true) {
+    return true;
+  }
+  final status = _asCodexString(cardData['status'])?.toLowerCase();
+  return status == 'running' || status == 'pending' || status == 'progress';
+}
+
+@visibleForTesting
+List<ChatMessageModel> mergeRemoteCodexSnapshotMessagesForTesting({
+  required List<ChatMessageModel> snapshotMessages,
+  required List<ChatMessageModel> existingMessages,
+  required String? activeTaskId,
+  required bool isAiResponding,
+}) {
+  return _mergeRemoteCodexSnapshotMessages(
+    snapshotMessages: snapshotMessages,
+    existingMessages: existingMessages,
+    activeTaskId: activeTaskId,
+    isAiResponding: isAiResponding,
+  );
+}
+
+List<ChatMessageModel> _codexMessagesFromThreadResponse(
+  Map<String, dynamic> response, {
+  bool active = false,
+  String? activeTurnId,
+}) {
   final thread = _asCodexMap(response['thread']) ?? response;
   final rawTurns = thread['turns'] ?? response['turns'];
   if (rawTurns is! List) {
     return const <ChatMessageModel>[];
   }
   final chronological = <ChatMessageModel>[];
+  final effectiveActiveTurnId =
+      activeTurnId ??
+      (active ? _codexLatestTurnIdFromThreadResponse(response) : null);
   var seq = 0;
   for (var turnIndex = 0; turnIndex < rawTurns.length; turnIndex += 1) {
     final turn = _asCodexMap(rawTurns[turnIndex]);
     if (turn == null) {
       continue;
     }
-    final turnId = _asCodexString(turn['id']) ?? 'turn-$turnIndex';
+    final turnId = _codexTurnIdAt(rawTurns, turnIndex) ?? 'turn-$turnIndex';
+    final isActiveTurn =
+        active &&
+        ((effectiveActiveTurnId != null && turnId == effectiveActiveTurnId) ||
+            (effectiveActiveTurnId == null &&
+                turnIndex == rawTurns.length - 1));
     final turnStartedAt =
         _codexTimeValueMs(turn['startedAt'] ?? turn['started_at']) ??
         DateTime.now().millisecondsSinceEpoch;
@@ -1035,7 +2179,14 @@ List<ChatMessageModel> _codexMessagesFromThreadResponse(
             itemIndex,
       );
       if (itemType == 'userMessage') {
-        final text = _codexExtractText(item['content'] ?? item['text']);
+        final text = _codexExtractText(
+          item['content'] ??
+              item['text'] ??
+              item['message'] ??
+              item['input'] ??
+              item['text_elements'] ??
+              item['parts'],
+        );
         if (text.trim().isEmpty) {
           continue;
         }
@@ -1059,6 +2210,7 @@ List<ChatMessageModel> _codexMessagesFromThreadResponse(
         }
         seq += 1;
         final messageId = '$itemId-codex-agent';
+        final isFinal = !isActiveTurn;
         chronological.add(
           ChatMessageModel(
             id: messageId,
@@ -1073,7 +2225,7 @@ List<ChatMessageModel> _codexMessagesFromThreadResponse(
               kind: 'text_snapshot',
               parentTaskId: turnId,
               entryId: messageId,
-              isFinal: true,
+              isFinal: isFinal,
             ),
           ),
         );
@@ -1083,23 +2235,30 @@ List<ChatMessageModel> _codexMessagesFromThreadResponse(
         final text = _codexExtractText(
           item['summary'] ?? item['text'] ?? item['content'],
         );
-        if (text.trim().isEmpty) {
+        if (text.trim().isEmpty && !isActiveTurn) {
           continue;
         }
         seq += 1;
         final cardId = '$itemId-codex-thinking';
+        // Reasoning items only collapse once the entire turn ends. While the
+        // turn is active, all reasoning cards stay in "正在思考" + expanded —
+        // even if a per-item status flips to "completed" mid-turn.
+        final isLoading = isActiveTurn;
+        final stage = isLoading
+            ? ThinkingStage.thinking.value
+            : ThinkingStage.complete.value;
         chronological.add(
           ChatMessageModel.cardMessage(
             {
               'type': 'deep_thinking',
-              'isLoading': false,
+              'isLoading': isLoading,
               'thinkingContent': text,
-              'stage': ThinkingStage.complete.value,
+              'stage': stage,
               'taskID': turnId,
               'cardId': cardId,
               'startTime': createdAt.millisecondsSinceEpoch,
-              'endTime': createdAt.millisecondsSinceEpoch,
-              'isCollapsible': true,
+              'endTime': isLoading ? null : createdAt.millisecondsSinceEpoch,
+              'isCollapsible': !isLoading,
             },
             id: cardId,
             streamMeta: ensureAgentStreamMessageMeta(
@@ -1109,7 +2268,7 @@ List<ChatMessageModel> _codexMessagesFromThreadResponse(
               kind: 'thinking_snapshot',
               parentTaskId: turnId,
               entryId: cardId,
-              isFinal: true,
+              isFinal: !isLoading,
             ),
           ).copyWith(createAt: createdAt),
         );
@@ -1118,6 +2277,11 @@ List<ChatMessageModel> _codexMessagesFromThreadResponse(
       if (_codexHistoricalToolItemTypes.contains(itemType)) {
         seq += 1;
         final cardId = '$itemId-codex-${_codexToolKind(itemType)}';
+        final itemActivity = _codexActivityFromValue(
+          item['status'] ?? item['state'],
+        );
+        final isRunning = isActiveTurn && itemActivity?.active != false;
+        final status = isRunning ? 'running' : 'success';
         final summary = _codexExtractText(
           item['summary'] ??
               item['status'] ??
@@ -1135,7 +2299,7 @@ List<ChatMessageModel> _codexMessagesFromThreadResponse(
               'toolTitle': _codexToolTitle(itemType, item),
               'cardId': cardId,
               'toolType': _codexToolKind(itemType),
-              'status': 'success',
+              'status': status,
               'summary': summary,
               'progress': summary,
               'argsJson': _safeCodexJson(item),
@@ -1151,10 +2315,10 @@ List<ChatMessageModel> _codexMessagesFromThreadResponse(
               null,
               seq: seq,
               roundIndex: seq,
-              kind: 'tool_completed',
+              kind: isRunning ? 'tool_progress' : 'tool_completed',
               parentTaskId: turnId,
               entryId: cardId,
-              isFinal: true,
+              isFinal: !isRunning,
             ),
           ).copyWith(createAt: createdAt),
         );
@@ -1162,6 +2326,33 @@ List<ChatMessageModel> _codexMessagesFromThreadResponse(
     }
   }
   return chronological.reversed.toList(growable: false);
+}
+
+@visibleForTesting
+List<ChatMessageModel> codexMessagesFromThreadResponseForTesting(
+  Map<String, dynamic> response, {
+  bool active = false,
+  String? activeTurnId,
+}) {
+  return _codexMessagesFromThreadResponse(
+    response,
+    active: active,
+    activeTurnId: activeTurnId,
+  );
+}
+
+@visibleForTesting
+String? codexActiveTurnIdFromThreadResponseForTesting(
+  Map<String, dynamic> response,
+) {
+  return _codexActiveTurnIdFromThreadResponse(response);
+}
+
+@visibleForTesting
+bool codexLatestTurnLooksExternallyActiveForTesting(
+  Map<String, dynamic> response,
+) {
+  return _codexLatestTurnLooksExternallyActive(response);
 }
 
 Map<String, dynamic>? _asCodexMap(dynamic value) {
@@ -1186,9 +2377,12 @@ String _codexExtractText(dynamic value) {
       'text',
       'content',
       'message',
+      'input',
       'value',
       'delta',
       'summary',
+      'text_elements',
+      'parts',
     ]) {
       final text = _codexExtractText(map[key]);
       if (text.isNotEmpty) {
@@ -1232,12 +2426,131 @@ String _codexToolTitle(String itemType, Map<String, dynamic> item) {
     return 'Codex command';
   }
   if (itemType == 'fileChange') {
-    return 'Codex file change';
+    return _codexFileChangeTitle(item);
   }
   if (itemType == 'plan') {
     return 'Codex plan';
   }
-  return _asCodexString(item['toolName'] ?? item['name']) ?? 'Codex tool';
+  return _codexGenericToolTitle(item);
+}
+
+String _codexFileChangeTitle(Map<String, dynamic> item) {
+  final path =
+      _asCodexString(
+        item['path'] ??
+            item['filePath'] ??
+            item['file_path'] ??
+            item['filename'] ??
+            item['fileName'],
+      ) ??
+      _codexFirstPathFromList(item['files']) ??
+      _codexFirstPathFromList(item['changes']);
+  if (path == null) {
+    return 'Codex file change';
+  }
+  final name = _codexLastPathSegment(path) ?? path;
+  return _truncateCodexText('Edit $name', 42);
+}
+
+String _codexGenericToolTitle(Map<String, dynamic> item) {
+  final args = _codexToolArgs(item);
+  final explicit = _asCodexString(
+    item['toolTitle'] ??
+        item['tool_title'] ??
+        item['displayName'] ??
+        item['display_name'] ??
+        args['toolTitle'] ??
+        args['tool_title'],
+  );
+  if (explicit != null) {
+    return _truncateCodexText(explicit, 48);
+  }
+  final detail = _asCodexString(
+    args['command'] ??
+        args['cmd'] ??
+        args['query'] ??
+        args['q'] ??
+        args['url'] ??
+        args['path'] ??
+        args['filePath'] ??
+        args['file_path'],
+  );
+  final toolName = _asCodexString(
+    item['toolName'] ?? item['tool_name'] ?? item['name'],
+  );
+  if (detail != null) {
+    final normalizedDetail = detail.contains('/') || detail.contains('\\')
+        ? (_codexLastPathSegment(detail) ?? detail)
+        : detail;
+    final shortName = toolName == null ? null : _codexShortToolName(toolName);
+    return _truncateCodexText(
+      shortName == null ? normalizedDetail : '$shortName: $normalizedDetail',
+      48,
+    );
+  }
+  if (toolName != null) {
+    return _truncateCodexText(_codexShortToolName(toolName), 48);
+  }
+  return 'Codex tool';
+}
+
+Map<String, dynamic> _codexToolArgs(Map<String, dynamic> item) {
+  for (final key in const <String>['arguments', 'args', 'input']) {
+    final map = _asCodexMap(item[key]);
+    if (map != null) {
+      return map;
+    }
+    final raw = _asCodexString(item[key]);
+    if (raw == null) {
+      continue;
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      final decodedMap = _asCodexMap(decoded);
+      if (decodedMap != null) {
+        return decodedMap;
+      }
+    } catch (_) {
+      continue;
+    }
+  }
+  return const <String, dynamic>{};
+}
+
+String? _codexFirstPathFromList(dynamic value) {
+  if (value is! List) {
+    return null;
+  }
+  for (final item in value) {
+    if (item is String && item.trim().isNotEmpty) {
+      return item.trim();
+    }
+    final map = _asCodexMap(item);
+    final path = _asCodexString(
+      map?['path'] ??
+          map?['filePath'] ??
+          map?['file_path'] ??
+          map?['filename'] ??
+          map?['fileName'],
+    );
+    if (path != null) {
+      return path;
+    }
+  }
+  return null;
+}
+
+String _codexShortToolName(String toolName) {
+  final normalized = toolName.trim();
+  if (normalized.isEmpty) {
+    return normalized;
+  }
+  final withoutNamespace = normalized.split(RegExp(r'[./:]')).last;
+  final parts = withoutNamespace
+      .split('__')
+      .where((part) => part.isNotEmpty)
+      .toList(growable: false);
+  return parts.isEmpty ? withoutNamespace : parts.last;
 }
 
 String _truncateCodexText(String text, int maxLength) {
@@ -1280,20 +2593,7 @@ List<String> _extractCodexOptionIds(
   Map<String, dynamic> response,
   List<String> listKeys,
 ) {
-  final rawItems = <dynamic>[];
-  for (final key in listKeys) {
-    final value = response[key];
-    if (value is List) {
-      rawItems.addAll(value);
-    }
-  }
-  if (rawItems.isEmpty) {
-    for (final value in response.values) {
-      if (value is List) {
-        rawItems.addAll(value);
-      }
-    }
-  }
+  final rawItems = _collectCodexListItems(response, listKeys);
   final seen = <String>{};
   final result = <String>[];
   for (final item in rawItems) {
@@ -1304,6 +2604,74 @@ List<String> _extractCodexOptionIds(
     result.add(id);
   }
   return result;
+}
+
+List<String> _mergeCodexOptionIds({
+  String? current,
+  String? preferred,
+  required List<String> options,
+}) {
+  final seen = <String>{};
+  final result = <String>[];
+  void add(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty || !seen.add(text)) {
+      return;
+    }
+    result.add(text);
+  }
+
+  add(current);
+  add(preferred);
+  for (final option in options) {
+    add(option);
+  }
+  return result;
+}
+
+List<dynamic> _collectCodexListItems(
+  Map<String, dynamic> response,
+  List<String> listKeys,
+) {
+  final normalizedKeys = listKeys.map(_normalizeCodexResponseKey).toSet();
+  final rawItems = <dynamic>[];
+
+  void visitMap(Map<dynamic, dynamic> map) {
+    for (final entry in map.entries) {
+      final key = _normalizeCodexResponseKey(entry.key.toString());
+      final value = entry.value;
+      if (value is List) {
+        if (normalizedKeys.contains(key)) {
+          rawItems.addAll(value);
+        }
+        for (final item in value) {
+          final nested = _asCodexMap(item);
+          if (nested != null) {
+            visitMap(nested);
+          }
+        }
+      } else {
+        final nested = _asCodexMap(value);
+        if (nested != null) {
+          visitMap(nested);
+        }
+      }
+    }
+  }
+
+  visitMap(response);
+  if (rawItems.isEmpty) {
+    for (final value in response.values) {
+      if (value is List) {
+        rawItems.addAll(value);
+      }
+    }
+  }
+  return rawItems;
+}
+
+String _normalizeCodexResponseKey(String key) {
+  return key.toLowerCase().replaceAll(RegExp(r'[_-]'), '');
 }
 
 String? _extractCodexPreferredOptionId(Map<String, dynamic> response) {
@@ -1341,6 +2709,81 @@ String? _extractCodexPreferredOptionId(Map<String, dynamic> response) {
   return null;
 }
 
+String? _extractCodexDefaultModelId(Map<String, dynamic> response) {
+  for (final item in _collectCodexListItems(
+    response,
+    _kCodexModelListResponseKeys,
+  )) {
+    final map = _asCodexMap(item);
+    if (map == null) {
+      continue;
+    }
+    final isDefault = map['isDefault'] == true || map['default'] == true;
+    if (!isDefault) {
+      continue;
+    }
+    final id = _codexOptionId(map);
+    if (id != null) {
+      return id;
+    }
+  }
+  return null;
+}
+
+String? _extractCodexModelDefaultReasoningEffort(
+  Map<String, dynamic> response,
+  String? modelId,
+) {
+  final normalizedModelId = modelId?.trim();
+  for (final item in _collectCodexListItems(
+    response,
+    _kCodexModelListResponseKeys,
+  )) {
+    final map = _asCodexMap(item);
+    if (map == null) {
+      continue;
+    }
+    if (normalizedModelId != null &&
+        normalizedModelId.isNotEmpty &&
+        !_codexModelItemMatches(map, normalizedModelId)) {
+      continue;
+    }
+    final effort = _normalizeCodexReasoningEffort(
+      map['defaultReasoningEffort'] ??
+          map['default_reasoning_effort'] ??
+          map['defaultReasoningLevel'] ??
+          map['default_reasoning_level'] ??
+          map['reasoningEffort'] ??
+          map['reasoning_effort'],
+    );
+    if (effort != null) {
+      return effort;
+    }
+  }
+  return null;
+}
+
+bool _codexModelItemMatches(
+  Map<String, dynamic> item,
+  String normalizedModelId,
+) {
+  for (final key in const <String>[
+    'id',
+    'model',
+    'modelId',
+    'model_id',
+    'slug',
+    'value',
+    'name',
+  ]) {
+    final text = item[key]?.toString().trim();
+    if (text == normalizedModelId) {
+      return true;
+    }
+  }
+  return false;
+}
+
 String? _extractCodexConfigModelId(Map<String, dynamic> response) {
   final direct = _codexOptionId(response['model'] ?? response['modelId']);
   if (direct != null) {
@@ -1371,6 +2814,155 @@ String? _extractCodexConfigModelId(Map<String, dynamic> response) {
   return null;
 }
 
+String? _extractCodexConfigReasoningEffort(Map<String, dynamic> response) {
+  final direct = _normalizeCodexReasoningEffort(
+    response['model_reasoning_effort'] ??
+        response['reasoning_effort'] ??
+        response['reasoningEffort'] ??
+        response['effort'],
+  );
+  if (direct != null) {
+    return direct;
+  }
+  for (final key in const <String>[
+    'config',
+    'effectiveConfig',
+    'effective',
+    'settings',
+    'modelSettings',
+    'model_settings',
+    'data',
+    'result',
+  ]) {
+    final value = response[key];
+    if (value is Map) {
+      final nested = _extractCodexConfigReasoningEffort(
+        value.map((key, nestedValue) => MapEntry(key.toString(), nestedValue)),
+      );
+      if (nested != null) {
+        return nested;
+      }
+    }
+  }
+  return null;
+}
+
+List<String> _extractCodexReasoningEffortOptions(
+  Map<String, dynamic> response,
+) {
+  final rawItems = <dynamic>[];
+  for (final key in const <String>[
+    'reasoningEfforts',
+    'reasoning_efforts',
+    'efforts',
+    'modelReasoningEfforts',
+    'model_reasoning_efforts',
+  ]) {
+    final value = response[key];
+    if (value is List) {
+      rawItems.addAll(value);
+    }
+  }
+  for (final value in response.values) {
+    if (value is Map) {
+      rawItems.addAll(
+        _extractCodexReasoningEffortOptions(
+          value.map(
+            (key, nestedValue) => MapEntry(key.toString(), nestedValue),
+          ),
+        ),
+      );
+    } else if (value is List) {
+      for (final item in value) {
+        if (item is! Map) {
+          continue;
+        }
+        for (final key in const <String>[
+          'reasoningEfforts',
+          'reasoning_efforts',
+          'supportedReasoningEfforts',
+          'supported_reasoning_efforts',
+          'efforts',
+        ]) {
+          final nested = item[key];
+          if (nested is List) {
+            rawItems.addAll(nested);
+          }
+        }
+      }
+    }
+  }
+  final seen = <String>{};
+  final result = <String>[];
+  for (final item in rawItems) {
+    final normalized = _normalizeCodexReasoningEffort(
+      item is Map
+          ? (item['id'] ??
+                item['value'] ??
+                item['name'] ??
+                item['effort'] ??
+                item['reasoningEffort'] ??
+                item['reasoning_effort'])
+          : item,
+    );
+    if (normalized == null || !seen.add(normalized)) {
+      continue;
+    }
+    result.add(normalized);
+  }
+  return result;
+}
+
+List<String> _mergeCodexReasoningEffortOptions({
+  String? current,
+  required List<String> options,
+}) {
+  final seen = <String>{};
+  final result = <String>[];
+  void add(String? value) {
+    final normalized = _normalizeCodexReasoningEffort(value);
+    if (normalized == null || !seen.add(normalized)) {
+      return;
+    }
+    result.add(normalized);
+  }
+
+  add(current);
+  for (final option in options) {
+    add(option);
+  }
+  for (final option in const <String>[
+    'low',
+    'medium',
+    'high',
+    _kDefaultCodexReasoningEffort,
+  ]) {
+    add(option);
+  }
+  return result;
+}
+
+String? _normalizeCodexReasoningEffort(dynamic value) {
+  final text = value?.toString().trim().toLowerCase() ?? '';
+  if (text.isEmpty) {
+    return null;
+  }
+  return switch (text) {
+    'no' || 'none' || 'off' => 'none',
+    'min' || 'minimal' || 'minimum' => 'minimal',
+    'med' || 'medium' => 'medium',
+    'extra_high' ||
+    'extra-high' ||
+    'very_high' ||
+    'very-high' ||
+    'x-high' ||
+    'x high' ||
+    'xhigh' => 'xhigh',
+    'low' || 'high' => text,
+    _ => text,
+  };
+}
+
 String? _codexOptionId(dynamic item) {
   if (item is String) {
     final text = item.trim();
@@ -1379,11 +2971,14 @@ String? _codexOptionId(dynamic item) {
   if (item is Map) {
     for (final key in const <String>[
       'id',
-      'model',
       'modelId',
+      'model_id',
       'slug',
-      'name',
       'value',
+      'model',
+      'name',
+      'displayName',
+      'display_name',
       'mode',
     ]) {
       final text = item[key]?.toString().trim() ?? '';
@@ -1391,6 +2986,10 @@ String? _codexOptionId(dynamic item) {
         return text;
       }
     }
+    return null;
+  }
+  if (item is Iterable) {
+    return null;
   }
   final text = item?.toString().trim() ?? '';
   return text.isEmpty ? null : text;
@@ -1413,6 +3012,13 @@ String _resolveCodexPlanMode(List<String> modes) {
 bool _isCodexPlanMode(String? mode) {
   final normalized = mode?.trim().toLowerCase() ?? '';
   return normalized == 'plan' || normalized.contains('plan');
+}
+
+class _CodexRunSettingsSnapshot {
+  const _CodexRunSettingsSnapshot({this.modelId, this.reasoningEffort});
+
+  final String? modelId;
+  final String? reasoningEffort;
 }
 
 extension _CodexPermissionModePayload on CodexPermissionMode {
