@@ -162,4 +162,53 @@ class CodexAppServerProtocolPayloadTest {
         assertEquals(false, DEFAULT_CODEX_THREAD_SOURCE_KINDS.contains("background"))
         assertEquals(false, DEFAULT_CODEX_THREAD_SOURCE_KINDS.contains("subAgentInteractive"))
     }
+
+    @Test
+    fun withLocalIdsInjectsActiveAndActiveTurnIdWhenActive() {
+        val response = mapOf<String, Any?>("thread" to mapOf("id" to "thread-1"))
+
+        val enriched = response.withLocalIds(
+            threadId = "thread-1",
+            conversationId = 42L,
+            turnId = "turn-7",
+            active = true,
+        )
+
+        assertEquals("thread-1", enriched["threadId"])
+        assertEquals(42L, enriched["conversationId"])
+        assertEquals("turn-7", enriched["turnId"])
+        assertEquals("turn-7", enriched["activeTurnId"])
+        assertEquals(true, enriched["active"])
+    }
+
+    @Test
+    fun withLocalIdsSurfacesInactiveWithoutActiveTurnId() {
+        val response = mapOf<String, Any?>("thread" to mapOf("id" to "thread-1"))
+
+        val enriched = response.withLocalIds(
+            threadId = "thread-1",
+            conversationId = 99L,
+            turnId = null,
+            active = false,
+        )
+
+        assertEquals(false, enriched["active"])
+        assertNull(enriched["turnId"])
+        assertNull(enriched["activeTurnId"])
+    }
+
+    @Test
+    fun withLocalIdsOmitsActiveFieldsWhenNotProvided() {
+        val response = mapOf<String, Any?>("thread" to mapOf("id" to "thread-1"))
+
+        val enriched = response.withLocalIds(
+            threadId = "thread-1",
+            conversationId = null,
+        )
+
+        assertEquals("thread-1", enriched["threadId"])
+        assertEquals(false, enriched.containsKey("active"))
+        assertEquals(false, enriched.containsKey("activeTurnId"))
+        assertEquals(false, enriched.containsKey("turnId"))
+    }
 }

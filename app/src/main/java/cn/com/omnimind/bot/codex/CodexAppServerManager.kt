@@ -232,10 +232,16 @@ class CodexAppServerManager private constructor(
         if (method == "thread/read" || method == "thread/resume") {
             syncActiveTurnSnapshot(threadId, response)
         }
+        val activeTurnId = activeTurnsByThreadId[threadId]
         return response.withLocalIds(
             threadId = threadId,
             conversationId = localConversationIdForThread(threadId),
-            turnId = activeTurnsByThreadId[threadId]
+            turnId = activeTurnId,
+            active = if (method == "thread/read" || method == "thread/resume") {
+                activeTurnId != null
+            } else {
+                null
+            }
         )
     }
 
@@ -947,10 +953,11 @@ private data class CodexThreadListEntry(
     val archived: Boolean?
 )
 
-private fun Map<String, Any?>.withLocalIds(
+internal fun Map<String, Any?>.withLocalIds(
     threadId: String?,
     conversationId: Long?,
-    turnId: String? = null
+    turnId: String? = null,
+    active: Boolean? = null
 ): Map<String, Any?> {
     val result = LinkedHashMap(this)
     if (!threadId.isNullOrBlank()) {
@@ -961,6 +968,12 @@ private fun Map<String, Any?>.withLocalIds(
     }
     if (!turnId.isNullOrBlank()) {
         result["turnId"] = turnId
+        if (active == true) {
+            result["activeTurnId"] = turnId
+        }
+    }
+    if (active != null) {
+        result["active"] = active
     }
     return result
 }

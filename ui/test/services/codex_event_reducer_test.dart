@@ -572,6 +572,8 @@ void main() {
     expect(runtime.messages.single.cardData!['startTime'], startedStartTime);
     expect(runtime.messages.single.cardData!['thinkingContent'], 'thinking');
 
+    // item/completed for reasoning no longer flips the card to complete — the
+    // turn may still emit more reasoning, tool calls, or an agent message.
     reducer.reduce(
       runtime: runtime,
       event: {
@@ -584,10 +586,29 @@ void main() {
         },
       },
     );
+    final midTurnCard = runtime.messages.single.cardData!;
+    expect(midTurnCard['startTime'], startedStartTime);
+    expect(midTurnCard['isLoading'], isTrue);
+    expect(midTurnCard['stage'], ThinkingStage.thinking.value);
 
-    final completedCard = runtime.messages.single.cardData!;
+    // turn/completed is the terminal signal that finalizes the thinking card.
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'message': {
+          'method': 'turn/completed',
+          'params': {'turnId': 'turn-1'},
+        },
+      },
+    );
+
+    final completedCard = runtime.messages
+        .firstWhere(
+          (message) => message.cardData?['type'] == 'deep_thinking',
+        )
+        .cardData!;
     expect(completedCard['startTime'], startedStartTime);
-    expect(completedCard['stage'], 4);
+    expect(completedCard['stage'], ThinkingStage.complete.value);
     expect(completedCard['isLoading'], isFalse);
     expect(completedCard['endTime'], isNotNull);
   });
@@ -768,4 +789,155 @@ void main() {
     expect(result.handled, isTrue);
     expect(runtime.messages, isEmpty);
   });
+
+  test(
+    'reasoning item/completed during active turn keeps thinking card loading',
+    () {
+      reducer.reduce(
+        runtime: runtime,
+        event: {
+          'message': {
+            'method': 'turn/started',
+            'params': {'threadId': 'thread-1', 'turnId': 'turn-1'},
+          },
+        },
+      );
+      reducer.reduce(
+        runtime: runtime,
+        event: {
+          'message': {
+            'method': 'item/reasoning/textDelta',
+            'params': {
+              'threadId': 'thread-1',
+              'turnId': 'turn-1',
+              'itemId': 'reason-1',
+              'delta': 'analysing the request',
+            },
+          },
+        },
+      );
+      reducer.reduce(
+        runtime: runtime,
+        event: {
+          'message': {
+            'method': 'item/completed',
+            'params': {
+              'threadId': 'thread-1',
+              'turnId': 'turn-1',
+              'itemId': 'reason-1',
+              'item': {
+                'id': 'reason-1',
+                'type': 'reasoning',
+                'summary': 'analysing the request',
+              },
+            },
+          },
+        },
+      );
+
+      final card = runtime.messages.firstWhere(
+        (message) => message.cardData?['type'] == 'deep_thinking',
+      );
+      final cardData = card.cardData!;
+      expect(cardData['isLoading'], isTrue);
+      expect(cardData['isCollapsible'], isFalse);
+      expect(cardData['stage'], ThinkingStage.thinking.value);
+      expect(runtime.isAiResponding, isTrue);
+    },
+  );
+
+  test('turn/completed finalizes the thinking card after reasoning ends', () {
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'message': {
+          'method': 'turn/started',
+          'params': {'threadId': 'thread-1', 'turnId': 'turn-1'},
+        },
+      },
+    );
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'message': {
+          'method': 'item/reasoning/textDelta',
+          'params': {
+            'threadId': 'thread-1',
+            'turnId': 'turn-1',
+            'itemId': 'reason-1',
+            'delta': 'finished thinking',
+          },
+        },
+      },
+    );
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'message': {
+          'method': 'item/completed',
+          'params': {
+            'threadId': 'thread-1',
+            'turnId': 'turn-1',
+            'itemId': 'reason-1',
+            'item': {
+              'id': 'reason-1',
+              'type': 'reasoning',
+              'summary': 'finished thinking',
+            },
+          },
+        },
+      },
+    );
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'message': {
+          'method': 'turn/completed',
+          'params': {'threadId': 'thread-1', 'turnId': 'turn-1'},
+        },
+      },
+    );
+
+    final card = runtime.messages.firstWhere(
+      (message) => message.cardData?['type'] == 'deep_thinking',
+    );
+    final cardData = card.cardData!;
+    expect(cardData['isLoading'], isFalse);
+    expect(cardData['isCollapsible'], isTrue);
+    expect(cardData['stage'], ThinkingStage.complete.value);
+    expect(runtime.isAiResponding, isFalse);
+  });
+
+  test(
+    'snapshot renders reasoning as loading even when item.status is completed '
+    'while turn is active',
+    () {
+      final messages = codexMessagesFromThreadResponseForTesting({
+        'thread': {
+          'id': 'thread-1',
+          'status': {'type': 'active'},
+          'turns': [
+            {
+              'id': 'turn-1',
+              'status': 'inProgress',
+              'items': [
+                {
+                  'id': 'reason-1',
+                  'type': 'reasoning',
+                  'status': 'completed',
+                  'summary': ['done reasoning'],
+                },
+              ],
+            },
+          ],
+        },
+      }, active: true, activeTurnId: 'turn-1');
+
+      final cardData = messages.first.cardData!;
+      expect(cardData['type'], 'deep_thinking');
+      expect(cardData['isLoading'], isTrue);
+      expect(cardData['isCollapsible'], isFalse);
+      expect(cardData['stage'], ThinkingStage.thinking.value);
+    },
+  );
 }

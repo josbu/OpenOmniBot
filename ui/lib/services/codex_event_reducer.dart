@@ -670,7 +670,7 @@ class CodexEventReducer {
       'cardId': cardId,
       'startTime': startTime,
       'endTime': endTime,
-      'isCollapsible': true,
+      'isCollapsible': !isLoading,
     };
     final message = ChatMessageModel(
       id: cardId,
@@ -923,11 +923,9 @@ class CodexEventReducer {
       runtime.codexReplayDeltaOffsets.remove(messageId);
     }
     if (itemType == 'reasoning') {
-      _finalizeThinkingCard(
-        runtime,
-        taskId,
-        '${itemId ?? taskId}-codex-thinking',
-      );
+      // Keep the thinking card streaming until the entire turn ends.
+      // _completeTurn() will call _finalizeThinkingCardsForTask() once
+      // turn/completed (or thread/closed/inactive) arrives.
       runtime.codexReplayDeltaOffsets.remove(
         '${itemId ?? taskId}-codex-thinking',
       );
@@ -1107,6 +1105,7 @@ class CodexEventReducer {
     cardData['cardId'] = cardId;
     cardData['startTime'] = startTime;
     cardData['endTime'] ??= DateTime.now().millisecondsSinceEpoch;
+    cardData['isCollapsible'] = true;
     cardData['thinkingContent'] = (cardData['thinkingContent'] ?? '')
         .toString();
     runtime.messages[index] = existing.copyWith(

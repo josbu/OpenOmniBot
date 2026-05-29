@@ -1140,8 +1140,17 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       assumeActive: assumeActive,
       directActiveTurnId: directActiveTurnId,
     );
-    final isAiResponding =
+    final snapshotIsAiResponding =
         directActiveTurnId != null || activity.active || inferredRemoteActive;
+    // The reducer is the authoritative source of "this turn is in flight":
+    // it flips runtime.isAiResponding=true on every streaming event and
+    // flips it back to false only on _completeTurn (turn/completed,
+    // thread/closed, thread/status/changed inactive). Snapshot polling
+    // runs every 2s and would otherwise downgrade that flag between
+    // reasoning deltas (codex doesn't always surface a "running" status
+    // in thread/read responses). Treat the snapshot value as a floor —
+    // never below what the runtime already knows.
+    final isAiResponding = snapshotIsAiResponding || previousActive;
     final activeTurnId = isAiResponding
         ? (directActiveTurnId ??
               _codexLatestTurnIdFromThreadResponse(response) ??
@@ -2206,10 +2215,10 @@ List<ChatMessageModel> _codexMessagesFromThreadResponse(
         }
         seq += 1;
         final cardId = '$itemId-codex-thinking';
-        final itemActivity = _codexActivityFromValue(
-          item['status'] ?? item['state'],
-        );
-        final isLoading = isActiveTurn && itemActivity?.active != false;
+        // Reasoning items only collapse once the entire turn ends. While the
+        // turn is active, all reasoning cards stay in "正在思考" + expanded —
+        // even if a per-item status flips to "completed" mid-turn.
+        final isLoading = isActiveTurn;
         final stage = isLoading
             ? ThinkingStage.thinking.value
             : ThinkingStage.complete.value;
