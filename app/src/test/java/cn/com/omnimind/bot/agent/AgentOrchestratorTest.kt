@@ -6,18 +6,33 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import java.util.Locale
 
 class AgentOrchestratorTest {
+    private lateinit var originalLocale: Locale
     private val eventJson = Json {
         ignoreUnknownKeys = true
         isLenient = true
         encodeDefaults = true
         prettyPrint = true
+    }
+
+    @Before
+    fun setUpLocale() {
+        originalLocale = Locale.getDefault()
+        Locale.setDefault(Locale.SIMPLIFIED_CHINESE)
+    }
+
+    @After
+    fun tearDownLocale() {
+        Locale.setDefault(originalLocale)
     }
 
     @Test
